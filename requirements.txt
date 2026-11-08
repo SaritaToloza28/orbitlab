@@ -4,6 +4,7 @@ matplotlib==3.11.2
 
 # Fase 2 — API y datos
 fastapi==0.162.2
+sqlmodel==0.0.48
 
 # Calidad y tests
 pytest==9.2.0
