@@ -1,0 +1,22 @@
+# Entorno virtual
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Tests y calidad
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Base de datos local
+*.db
+*.sqlite3
+
+# Sistema operativo y editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
