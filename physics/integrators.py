@@ -5,11 +5,19 @@ el error en la energía oscila pero no crece. Euler queda solo como
 comparación en los tests, porque acumula energía y la órbita se abre.
 """
 
+from collections.abc import Callable
 from typing import NamedTuple
 
 import numpy as np
 
 from physics.gravity import DEFAULT_SOFTENING, G, accelerations
+
+# Función que recibe la fracción completada (de 0 a 1). La física no sabe
+# qué hace con ella: la API la usa para guardar el progreso en la base de datos.
+ProgressCallback = Callable[[float], None]
+
+# Cuántas veces como máximo se informa el progreso (cada 1 %).
+PROGRESS_REPORTS = 100
 
 
 class SimulationResult(NamedTuple):
@@ -101,11 +109,15 @@ def simulate(
     save_every: int,
     g: float = G,
     softening: float = DEFAULT_SOFTENING,
+    on_progress: ProgressCallback | None = None,
 ) -> SimulationResult:
     """Simula `steps` pasos con Velocity Verlet y guarda un fotograma cada `save_every`.
 
     El fotograma 0 es el estado inicial, así que se guardan
     `steps // save_every + 1` fotogramas.
+
+    Si se pasa `on_progress`, se llama unas PROGRESS_REPORTS veces durante la
+    simulación y una última vez con 1.0 al terminar.
     """
     positions = np.asarray(positions, dtype=float)
     velocities = np.asarray(velocities, dtype=float)
@@ -113,6 +125,10 @@ def simulate(
 
     acc = accelerations(positions, masses, g, softening)
     initial_energy = energy(positions, velocities, masses, g, softening)
+
+    # Informar en cada paso sería lento para quien guarda el progreso;
+    # con pocos pasos (menos de 100) se informa en todos.
+    report_every = max(1, steps // PROGRESS_REPORTS)
 
     # Copia para no guardar una referencia al array que nos pasaron.
     frames = [positions.copy()]
@@ -123,6 +139,8 @@ def simulate(
         # Submuestreo: no se guardan todos los pasos, solo uno de cada save_every.
         if step % save_every == 0:
             frames.append(positions)
+        if on_progress is not None and (step % report_every == 0 or step == steps):
+            on_progress(step / steps)
 
     final_energy = energy(positions, velocities, masses, g, softening)
     # Con energía inicial 0 el error relativo no existe; se usa el absoluto.
