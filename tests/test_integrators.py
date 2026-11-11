@@ -2,7 +2,13 @@ import numpy as np
 import pytest
 
 from physics.gravity import accelerations
-from physics.integrators import energy, euler_step, simulate, verlet_step
+from physics.integrators import (
+    PROGRESS_REPORTS,
+    energy,
+    euler_step,
+    simulate,
+    verlet_step,
+)
 
 # Suavizado casi nulo para comparar con las cuentas hechas a mano.
 TINY = 1e-9
@@ -140,3 +146,82 @@ def test_simulate_does_not_modify_inputs():
 
     np.testing.assert_array_equal(positions, SUN_EARTH_POSITIONS)
     np.testing.assert_array_equal(velocities, SUN_EARTH_VELOCITIES)
+
+
+def test_progress_is_reported_about_every_percent():
+    reports = []
+
+    simulate(
+        SUN_EARTH_POSITIONS,
+        SUN_EARTH_VELOCITIES,
+        SUN_EARTH_MASSES,
+        dt=0.001,
+        steps=1000,
+        save_every=10,
+        on_progress=reports.append,
+    )
+
+    # Unas 100 veces, siempre creciente, y la última es 1.0 (terminó).
+    assert len(reports) == PROGRESS_REPORTS
+    assert reports == sorted(reports)
+    assert reports[0] == pytest.approx(0.01)
+    assert reports[-1] == 1.0
+
+
+def test_progress_ends_at_one_when_steps_do_not_divide_evenly():
+    reports = []
+
+    # 1055 pasos: se informa cada 10 (10, 20, ..., 1050) y además en el
+    # último paso, 1055, aunque no sea múltiplo de 10.
+    simulate(
+        SUN_EARTH_POSITIONS,
+        SUN_EARTH_VELOCITIES,
+        SUN_EARTH_MASSES,
+        dt=0.001,
+        steps=1055,
+        save_every=5,
+        on_progress=reports.append,
+    )
+
+    assert len(reports) == 106
+    assert reports[-2] == pytest.approx(1050 / 1055)
+    assert reports[-1] == 1.0
+
+
+def test_progress_with_few_steps_reports_every_step():
+    reports = []
+
+    simulate(
+        SUN_EARTH_POSITIONS,
+        SUN_EARTH_VELOCITIES,
+        SUN_EARTH_MASSES,
+        dt=0.001,
+        steps=4,
+        save_every=2,
+        on_progress=reports.append,
+    )
+
+    assert reports == [0.25, 0.5, 0.75, 1.0]
+
+
+def test_progress_does_not_change_the_result():
+    without = simulate(
+        SUN_EARTH_POSITIONS,
+        SUN_EARTH_VELOCITIES,
+        SUN_EARTH_MASSES,
+        dt=0.001,
+        steps=100,
+        save_every=10,
+    )
+    with_progress = simulate(
+        SUN_EARTH_POSITIONS,
+        SUN_EARTH_VELOCITIES,
+        SUN_EARTH_MASSES,
+        dt=0.001,
+        steps=100,
+        save_every=10,
+        on_progress=lambda fraction: None,
+    )
+
+    np.testing.assert_array_equal(without.frames, with_progress.frames)
+    assert without.energy_error == with_progress.energy_error

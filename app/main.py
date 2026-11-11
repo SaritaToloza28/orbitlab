@@ -1,36 +1,39 @@
 """Rutas de la API de Orbitlab.
 
-Conecta las piezas: valida con schemas.py, simula con physics/ y guarda
-con db.py. En la fase 2 el POST simula antes de responder (síncrono);
-en la fase 3 el cálculo pasa a segundo plano.
+Conecta las piezas: valida con schemas.py, guarda con db.py y encola la
+simulación en el pool de procesos de jobs.py. La petición HTTP nunca espera
+al cálculo: el POST responde 202 y el cliente consulta el estado (polling).
 
 Para levantarla, desde la carpeta del proyecto:
     uvicorn app.main:app --reload
 """
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import Annotated
 
-import numpy as np
 from fastapi import Depends, FastAPI, HTTPException, status
 from sqlmodel import Session, select
 
-from app.db import Experiment, ExperimentFrames, create_db_and_tables, get_session
+from app.db import Experiment, create_db_and_tables, get_session
+from app.jobs import recover_interrupted, start_pool, stop_pool, submit_experiment
 from app.schemas import (
+    ExperimentAccepted,
     ExperimentCreate,
     ExperimentDetail,
-    ExperimentStatus,
     ExperimentSummary,
 )
-from physics.integrators import simulate
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Corre una vez al arrancar el servidor: crea las tablas si no existen."""
+    """Al arrancar prepara la base y el pool; al apagar, detiene el pool."""
     create_db_and_tables()
+    # Lo que quedó a medias en un apagado anterior ya no se va a terminar.
+    recover_interrupted()
+    start_pool()
     yield
+    stop_pool()
 
 
 app = FastAPI(
@@ -39,65 +42,39 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Atajo: cada endpoint que lo pida recibe su propia sesión de base de datos.
+# Función que encola un experimento por su id y vuelve sin esperar.
+Submitter = Callable[[int], object]
+
+
+def get_submitter() -> Submitter:
+    """Dependencia para encolar: los tests la cambian por una que corre al instante."""
+    return submit_experiment
+
+
+# Atajos: cada endpoint que los pida recibe su sesión y la función para encolar.
 SessionDep = Annotated[Session, Depends(get_session)]
-
-
-def run_simulation(session: Session, experiment: Experiment) -> None:
-    """Simula el experimento y guarda el resultado, o el motivo si falla (RF7)."""
-    # Los cuerpos están guardados como dicts; simulate() necesita arrays.
-    positions = np.array([[b["x"], b["y"]] for b in experiment.bodies])
-    velocities = np.array([[b["vx"], b["vy"]] for b in experiment.bodies])
-    masses = np.array([b["mass"] for b in experiment.bodies])
-
-    try:
-        result = simulate(
-            positions,
-            velocities,
-            masses,
-            experiment.dt,
-            experiment.steps,
-            experiment.save_every,
-        )
-        # NumPy no lanza error con NaN: lo comprobamos nosotros.
-        if not (
-            np.all(np.isfinite(result.frames)) and np.isfinite(result.energy_error)
-        ):
-            raise ValueError(
-                "la simulación produjo valores no finitos (NaN o infinito)"
-            )
-    # Cualquier error se guarda como fallo en vez de tumbar la petición (RF7),
-    # por eso se captura Exception a propósito.
-    except Exception as error:  # noqa: BLE001
-        experiment.status = ExperimentStatus.FAILED
-        experiment.error_message = str(error)
-    else:
-        session.add(
-            ExperimentFrames(experiment_id=experiment.id, frames=result.frames.tolist())
-        )
-        experiment.status = ExperimentStatus.COMPLETED
-        experiment.progress = 1.0
-        experiment.energy_error = result.energy_error
-
-    session.add(experiment)
-    session.commit()
+SubmitterDep = Annotated[Submitter, Depends(get_submitter)]
 
 
 @app.post(
     "/experiments",
-    response_model=ExperimentDetail,
-    status_code=status.HTTP_201_CREATED,
+    response_model=ExperimentAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
 )
-def create_experiment(data: ExperimentCreate, session: SessionDep) -> Experiment:
-    """Crea un experimento y lo simula (RF1). Datos inválidos dan 422 (RF6)."""
-    experiment = Experiment(**data.model_dump(), status=ExperimentStatus.RUNNING)
+def create_experiment(
+    data: ExperimentCreate, session: SessionDep, submit: SubmitterDep
+) -> Experiment:
+    """Guarda el experimento como pending y lo encola (RF1, RF2).
+
+    Responde 202 de inmediato, sin esperar el cálculo. Datos inválidos dan 422 (RF6).
+    """
+    experiment = Experiment(**data.model_dump())
     session.add(experiment)
     session.commit()
     # refresh trae el id que asignó la base de datos.
     session.refresh(experiment)
 
-    run_simulation(session, experiment)
-    session.refresh(experiment)
+    submit(experiment.id)
     return experiment
 
 
