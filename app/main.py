@@ -15,13 +15,21 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, HTTPException, status
 from sqlmodel import Session, select
 
-from app.db import Experiment, create_db_and_tables, get_session
+from app.db import (
+    Experiment,
+    ExperimentFrames,
+    create_db_and_tables,
+    delete_experiment,
+    get_session,
+)
 from app.jobs import recover_interrupted, start_pool, stop_pool, submit_experiment
 from app.schemas import (
     ExperimentAccepted,
     ExperimentCreate,
     ExperimentDetail,
+    ExperimentStatus,
     ExperimentSummary,
+    FramesOut,
 )
 
 
@@ -84,9 +92,8 @@ def list_experiments(session: SessionDep) -> list[Experiment]:
     return session.exec(select(Experiment).order_by(Experiment.id.desc())).all()
 
 
-@app.get("/experiments/{experiment_id}", response_model=ExperimentDetail)
-def get_experiment(experiment_id: int, session: SessionDep) -> Experiment:
-    """Parámetros, estado, progreso y error de energía de un experimento (RF3, RF8)."""
+def get_experiment_or_404(session: Session, experiment_id: int) -> Experiment:
+    """Busca un experimento; si no existe, responde 404."""
     experiment = session.get(Experiment, experiment_id)
     if experiment is None:
         raise HTTPException(
@@ -94,3 +101,61 @@ def get_experiment(experiment_id: int, session: SessionDep) -> Experiment:
             detail=f"no existe el experimento {experiment_id}",
         )
     return experiment
+
+
+@app.get("/experiments/{experiment_id}", response_model=ExperimentDetail)
+def get_experiment(experiment_id: int, session: SessionDep) -> Experiment:
+    """Parámetros, estado, progreso y error de energía de un experimento (RF3, RF8)."""
+    return get_experiment_or_404(session, experiment_id)
+
+
+@app.get("/experiments/{experiment_id}/frames", response_model=FramesOut)
+def get_frames(experiment_id: int, session: SessionDep) -> FramesOut:
+    """Fotogramas de un experimento terminado (RF4).
+
+    404 si no existe. 409 si existe pero no tiene fotogramas: todavía no
+    terminó, o falló. El experimento está, pero su estado no lo permite.
+    """
+    experiment = get_experiment_or_404(session, experiment_id)
+
+    if experiment.status is ExperimentStatus.FAILED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"el experimento {experiment_id} falló: {experiment.error_message}",
+        )
+    if experiment.status is not ExperimentStatus.COMPLETED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"el experimento {experiment_id} todavía no terminó "
+                f"(estado: {experiment.status}, progreso: {experiment.progress:.0%})"
+            ),
+        )
+
+    # Solo aquí se leen los fotogramas: la tabla aparte evita cargarlos antes.
+    saved = session.get(ExperimentFrames, experiment_id)
+    return FramesOut(
+        experiment_id=experiment_id,
+        frame_interval=experiment.dt * experiment.save_every,
+        frames=saved.frames,
+    )
+
+
+@app.delete("/experiments/{experiment_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete(experiment_id: int, session: SessionDep) -> None:
+    """Borra un experimento y sus fotogramas (RF10).
+
+    No se puede borrar mientras corre: el worker, en otro proceso, intentaría
+    guardar en una fila que ya no existe. Uno pending sí se puede: cuando el
+    worker lo tome, no lo encontrará y no hará nada.
+    """
+    experiment = get_experiment_or_404(session, experiment_id)
+    if experiment.status is ExperimentStatus.RUNNING:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"el experimento {experiment_id} se está simulando; "
+                "espera a que termine para borrarlo"
+            ),
+        )
+    delete_experiment(session, experiment)

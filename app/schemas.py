@@ -114,3 +114,13 @@ class ExperimentDetail(ExperimentSummary):
     energy_error: float | None = None
     # Motivo del fallo, solo si el estado es failed (RF7).
     error_message: str | None = None
+
+
+class FramesOut(BaseModel):
+    """Fotogramas de un experimento terminado, para GET /experiments/{id}/frames."""
+
+    experiment_id: int
+    # Años simulados entre un fotograma y el siguiente (dt · save_every).
+    frame_interval: float
+    # Posiciones x, y de cada cuerpo en cada fotograma. (n_fotogramas, N, 2)
+    frames: list[list[list[float]]]
