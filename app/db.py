@@ -16,12 +16,12 @@ from app.schemas import ExperimentStatus
 
 # El archivo vive en la raíz del proyecto, sin importar desde dónde se ejecute.
 DATABASE_PATH = Path(__file__).resolve().parent.parent / "orbitlab.db"
+# Es un texto, así que se puede enviar a otro proceso (un engine no).
+DATABASE_URL = f"sqlite:///{DATABASE_PATH}"
 
 # check_same_thread=False: FastAPI puede atender una petición en otro hilo
 # distinto al que abrió la conexión, y SQLite lo prohíbe por defecto.
-engine = create_engine(
-    f"sqlite:///{DATABASE_PATH}", connect_args={"check_same_thread": False}
-)
+engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 
 
 class Experiment(SQLModel, table=True):
