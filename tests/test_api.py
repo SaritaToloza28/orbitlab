@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
-from app.db import ExperimentFrames, create_db_and_tables, get_session
+from app.db import Experiment, ExperimentFrames, create_db_and_tables, get_session
 from app.jobs import (
     engine_for,
     run_experiment,
@@ -14,6 +14,7 @@ from app.jobs import (
     submit_experiment,
 )
 from app.main import app, get_submitter
+from app.schemas import ExperimentStatus
 from physics.integrators import SimulationResult
 
 
@@ -238,3 +239,142 @@ def test_full_flow_with_real_pool(engine, database_url):
 def test_real_submitter_is_the_process_pool():
     # Sin reemplazos, la API encola en el pool de procesos de jobs.py.
     assert get_submitter() is submit_experiment
+
+
+def test_frames_of_completed_experiment(client):
+    data = light_example("Sol y Tierra")
+    experiment_id = client.post("/experiments", json=data).json()["id"]
+
+    response = client.get(f"/experiments/{experiment_id}/frames")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["experiment_id"] == experiment_id
+    # 0,001 años por paso, guardando cada 10 pasos.
+    assert body["frame_interval"] == pytest.approx(0.01)
+    # 500 / 10 + el inicial = 51 fotogramas, de 2 cuerpos con x, y.
+    assert len(body["frames"]) == 51
+    assert all(len(frame) == 2 for frame in body["frames"])
+    # El primer fotograma es la posición inicial.
+    assert body["frames"][0] == [[0, 0], [1, 0]]
+
+
+def test_frames_of_pending_experiment_returns_409(engine):
+    # Un executor que solo anota: el experimento se queda pending.
+    client = make_client(engine, lambda experiment_id: None)
+    experiment_id = client.post("/experiments", json=plan_example()).json()["id"]
+
+    response = client.get(f"/experiments/{experiment_id}/frames")
+
+    assert response.status_code == 409
+    assert "todavía no terminó" in response.json()["detail"]
+    assert "pending" in response.json()["detail"]
+    app.dependency_overrides.clear()
+
+
+def test_frames_of_running_experiment_returns_409_with_progress(engine):
+    client = make_client(engine, lambda experiment_id: None)
+    experiment_id = client.post("/experiments", json=plan_example()).json()["id"]
+    # Simula a un worker a mitad de camino.
+    with Session(engine) as session:
+        experiment = session.get(Experiment, experiment_id)
+        experiment.status = ExperimentStatus.RUNNING
+        experiment.progress = 0.35
+        session.add(experiment)
+        session.commit()
+
+    response = client.get(f"/experiments/{experiment_id}/frames")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        f"el experimento {experiment_id} todavía no terminó "
+        "(estado: running, progreso: 35%)"
+    )
+    app.dependency_overrides.clear()
+
+
+def test_frames_of_failed_experiment_returns_409_with_reason(client, monkeypatch):
+    def broken_simulate(*args, **kwargs):
+        raise RuntimeError("algo salió mal")
+
+    monkeypatch.setattr("app.jobs.simulate", broken_simulate)
+    experiment_id = client.post("/experiments", json=plan_example()).json()["id"]
+
+    response = client.get(f"/experiments/{experiment_id}/frames")
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        f"el experimento {experiment_id} falló: algo salió mal"
+    )
+
+
+def test_frames_of_missing_experiment_returns_404(client):
+    response = client.get("/experiments/999/frames")
+
+    assert response.status_code == 404
+
+
+def set_running(engine, experiment_id: int) -> None:
+    """Deja el experimento como si un worker lo estuviera simulando."""
+    with Session(engine) as session:
+        experiment = session.get(Experiment, experiment_id)
+        experiment.status = ExperimentStatus.RUNNING
+        session.add(experiment)
+        session.commit()
+
+
+def test_delete_completed_experiment(client, engine):
+    experiment_id = client.post("/experiments", json=light_example("x")).json()["id"]
+
+    response = client.delete(f"/experiments/{experiment_id}")
+
+    # 204: hecho, sin nada que devolver.
+    assert response.status_code == 204
+    assert response.content == b""
+    assert client.get(f"/experiments/{experiment_id}").status_code == 404
+    assert client.get(f"/experiments/{experiment_id}/frames").status_code == 404
+    assert client.get("/experiments").json() == []
+    # Los fotogramas también se borraron, no quedaron huérfanos.
+    with Session(engine) as session:
+        assert session.exec(select(ExperimentFrames)).all() == []
+
+
+def test_delete_failed_experiment(client, monkeypatch):
+    def broken_simulate(*args, **kwargs):
+        raise RuntimeError("algo salió mal")
+
+    monkeypatch.setattr("app.jobs.simulate", broken_simulate)
+    experiment_id = client.post("/experiments", json=plan_example()).json()["id"]
+
+    assert client.delete(f"/experiments/{experiment_id}").status_code == 204
+
+
+def test_delete_pending_experiment(engine, database_url):
+    queued = []
+    client = make_client(engine, queued.append)
+    experiment_id = client.post("/experiments", json=plan_example()).json()["id"]
+
+    assert client.delete(f"/experiments/{experiment_id}").status_code == 204
+
+    # Cuando el worker por fin lo toma de la cola, no lo encuentra y no falla.
+    run_experiment(queued[0], database_url)
+    assert client.get(f"/experiments/{experiment_id}").status_code == 404
+    app.dependency_overrides.clear()
+
+
+def test_delete_running_experiment_returns_409(engine):
+    client = make_client(engine, lambda experiment_id: None)
+    experiment_id = client.post("/experiments", json=plan_example()).json()["id"]
+    set_running(engine, experiment_id)
+
+    response = client.delete(f"/experiments/{experiment_id}")
+
+    assert response.status_code == 409
+    assert "se está simulando" in response.json()["detail"]
+    # Sigue ahí.
+    assert client.get(f"/experiments/{experiment_id}").status_code == 200
+    app.dependency_overrides.clear()
+
+
+def test_delete_missing_experiment_returns_404(client):
+    assert client.delete("/experiments/999").status_code == 404
