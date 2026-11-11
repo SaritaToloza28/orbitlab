@@ -378,3 +378,35 @@ def test_delete_running_experiment_returns_409(engine):
 
 def test_delete_missing_experiment_returns_404(client):
     assert client.delete("/experiments/999").status_code == 404
+
+
+@pytest.mark.parametrize(
+    "name, expected_name",
+    [
+        ("sol-tierra", "Sol y Tierra"),
+        ("binario", "Sistema binario"),
+        ("figura-8", "Figura 8"),
+    ],
+)
+def test_create_from_scenario(client, name, expected_name):
+    response = client.post(f"/experiments/from-scenario/{name}")
+
+    assert response.status_code == 202
+    assert response.json()["status"] == "pending"
+    detail = client.get(f"/experiments/{response.json()['id']}").json()
+    assert detail["name"] == expected_name
+    assert detail["status"] == "completed"
+    assert detail["energy_error"] < 1e-3
+    frames = client.get(f"/experiments/{detail['id']}/frames").json()["frames"]
+    assert len(frames) == 1001
+
+
+def test_unknown_scenario_returns_404_with_options(client):
+    response = client.post("/experiments/from-scenario/saturno")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == (
+        "no existe el escenario 'saturno'; "
+        "los disponibles son: sol-tierra, binario, figura-8"
+    )
+    assert client.get("/experiments").json() == []
