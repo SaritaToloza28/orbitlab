@@ -80,6 +80,15 @@ class ExperimentCreate(BaseModel):
         return self
 
 
+class ExperimentAccepted(BaseModel):
+    """Respuesta 202 del POST: el pedido se recibió, el cálculo va en camino."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    status: ExperimentStatus
+
+
 class ExperimentSummary(BaseModel):
     """Versión liviana para GET /experiments: sin cuerpos ni fotogramas."""
 
