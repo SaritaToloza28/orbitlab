@@ -31,6 +31,7 @@ from app.schemas import (
     ExperimentSummary,
     FramesOut,
 )
+from physics.scenarios import SCENARIOS
 
 
 @asynccontextmanager
@@ -64,18 +65,10 @@ SessionDep = Annotated[Session, Depends(get_session)]
 SubmitterDep = Annotated[Submitter, Depends(get_submitter)]
 
 
-@app.post(
-    "/experiments",
-    response_model=ExperimentAccepted,
-    status_code=status.HTTP_202_ACCEPTED,
-)
-def create_experiment(
-    data: ExperimentCreate, session: SessionDep, submit: SubmitterDep
+def save_and_submit(
+    data: ExperimentCreate, session: Session, submit: Submitter
 ) -> Experiment:
-    """Guarda el experimento como pending y lo encola (RF1, RF2).
-
-    Responde 202 de inmediato, sin esperar el cálculo. Datos inválidos dan 422 (RF6).
-    """
+    """Guarda el experimento como pending y lo encola, sin esperar el cálculo."""
     experiment = Experiment(**data.model_dump())
     session.add(experiment)
     session.commit()
@@ -84,6 +77,42 @@ def create_experiment(
 
     submit(experiment.id)
     return experiment
+
+
+@app.post(
+    "/experiments",
+    response_model=ExperimentAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def create_experiment(
+    data: ExperimentCreate, session: SessionDep, submit: SubmitterDep
+) -> Experiment:
+    """Crea un experimento y lo encola (RF1, RF2).
+
+    Responde 202 de inmediato, sin esperar el cálculo. Datos inválidos dan 422 (RF6).
+    """
+    return save_and_submit(data, session, submit)
+
+
+@app.post(
+    "/experiments/from-scenario/{name}",
+    response_model=ExperimentAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def create_from_scenario(
+    name: str, session: SessionDep, submit: SubmitterDep
+) -> Experiment:
+    """Crea un experimento a partir de un escenario precargado (RF9)."""
+    scenario = SCENARIOS.get(name)
+    if scenario is None:
+        available = ", ".join(SCENARIOS)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"no existe el escenario '{name}'; los disponibles son: {available}",
+        )
+    # Pasa por las mismas validaciones que un experimento enviado por el cliente.
+    data = ExperimentCreate.model_validate(scenario)
+    return save_and_submit(data, session, submit)
 
 
 @app.get("/experiments", response_model=list[ExperimentSummary])
