@@ -10,9 +10,11 @@ Para levantarla, desde la carpeta del proyecto:
 
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi.responses import FileResponse
 from sqlmodel import Session, select
 
 from app.db import (
@@ -50,6 +52,15 @@ app = FastAPI(
     description="Simulación gravitatoria de N cuerpos en 2D.",
     lifespan=lifespan,
 )
+
+INDEX_HTML = Path(__file__).resolve().parent.parent / "static" / "index.html"
+
+
+@app.get("/", include_in_schema=False)
+def index() -> FileResponse:
+    """La página que anima los fotogramas. Todo su CSS y JS va dentro del HTML."""
+    return FileResponse(INDEX_HTML)
+
 
 # Función que encola un experimento por su id y vuelve sin esperar.
 Submitter = Callable[[int], object]
