@@ -6,18 +6,26 @@
   <title>Orbitlab</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Spectral:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
   <style>
-    /* Paleta de placa cianotipo: azul de Prusia, tinta color papel y sodio para las estrellas. */
+    /* Espacio profundo con paneles de vidrio: nebulosas violeta y azul,
+       estrellas doradas y planetas cian. */
     :root {
-      --plate: #0E2F4F;
-      --plate-deep: #0A2540;
-      --ink: #E6EEF2;
-      --ink-dim: #8FA9BD;
-      --line: #2B5276;
-      --sodium: #F2C14E;
-      --error: #F4A193;
-      --serif: "Spectral", Georgia, serif;
+      --space: #0B0920;
+      --plate-deep: rgba(8, 6, 26, 0.55);
+      --glass: rgba(255, 255, 255, 0.08);
+      --glass-hi: rgba(255, 255, 255, 0.14);
+      --glass-border: rgba(255, 255, 255, 0.13);
+      --ink: #EEF0FF;
+      --ink-dim: #A6A9CF;
+      --line: rgba(255, 255, 255, 0.16);
+      --sodium: #FFD27A;
+      --planet: #8FE3FF;
+      --violet: #8B5CF6;
+      --blue: #3B82F6;
+      --error: #FF9B8A;
+      --radius: 26px;
+      --display: "Space Grotesk", system-ui, sans-serif;
       --sans: "Atkinson Hyperlegible", system-ui, sans-serif;
     }
 
@@ -26,198 +34,745 @@
     html, body { margin: 0; height: 100%; }
 
     body {
-      background: var(--plate);
       color: var(--ink);
       font: 16px/1.5 var(--sans);
+      background:
+        radial-gradient(ellipse 60% 50% at 12% 18%, rgba(124, 58, 237, 0.46), transparent 70%),
+        radial-gradient(ellipse 55% 45% at 88% 82%, rgba(37, 99, 235, 0.38), transparent 70%),
+        radial-gradient(ellipse 35% 30% at 62% 8%, rgba(236, 72, 153, 0.20), transparent 70%),
+        radial-gradient(ellipse 40% 35% at 35% 95%, rgba(20, 184, 166, 0.14), transparent 70%),
+        var(--space);
       display: grid;
-      grid-template-columns: 1fr 22rem;
-      /* La página mide lo que la ventana: si el panel es más alto, se desplaza
-         él solo y el Canvas no se estira. */
+      grid-template-rows: auto 1fr;
+      gap: 18px;
+      padding: 18px 20px 20px;
+      /* La página mide lo que la ventana: el panel se desplaza solo. */
       height: 100vh;
+      overflow: hidden;
     }
 
-    /* El Canvas ocupa todo su espacio; su tamaño real se ajusta en JS. */
+    /* Cielo estrellado detrás de todo (se dibuja en JS). */
+    #sky { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 0; pointer-events: none; }
+
+    .topbar, .layout { position: relative; z-index: 1; }
+
+    /* Vidrio esmerilado común a barras y tarjetas. */
+    .glass {
+      background: linear-gradient(160deg, var(--glass-hi), var(--glass));
+      border: 1px solid var(--glass-border);
+      backdrop-filter: blur(18px) saturate(140%);
+      -webkit-backdrop-filter: blur(18px) saturate(140%);
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    }
+
+    /* ---------- Barra superior ---------- */
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 1.25rem;
+      padding: 0.55rem 0.6rem 0.55rem 1.1rem;
+      border-radius: 999px;
+    }
+
+    .brand { display: flex; align-items: center; gap: 0.6rem; min-width: 0; }
+
+    .brand svg { width: 34px; height: 34px; flex: none; }
+
+    h1 {
+      font: 700 1.35rem/1 var(--display);
+      margin: 0;
+      letter-spacing: -0.01em;
+    }
+
+    /* Selector de modo: pastillas como un menú de navegación. */
+    .modes { display: flex; gap: 0.35rem; margin-left: auto; }
+
+    .modes button {
+      font: 500 0.95rem var(--display);
+      border: 1px solid transparent;
+      border-radius: 999px;
+      padding: 0.6rem 1.25rem;
+      background: transparent;
+      color: var(--ink-dim);
+    }
+
+    .modes button:hover { color: var(--ink); }
+
+    .modes button[aria-pressed="true"] {
+      background: rgba(255, 255, 255, 0.14);
+      border-color: rgba(255, 255, 255, 0.18);
+      color: var(--ink);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    }
+
+    /* ---------- Distribución ---------- */
+
+    .layout {
+      display: grid;
+      grid-template-columns: 1fr 24rem;
+      gap: 20px;
+      min-height: 0;
+    }
+
+    /* El lienzo: una gran ventana al espacio, como la tarjeta principal. */
     .plate {
       position: relative;
-      background: var(--plate-deep);
-      min-height: 60vh;
+      border-radius: calc(var(--radius) + 6px);
+      overflow: hidden;
+      background:
+        radial-gradient(ellipse at 50% 50%, rgba(139, 92, 246, 0.14), transparent 65%),
+        rgba(4, 3, 16, 0.12);
+      border: 1px solid var(--glass-border);
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4), inset 0 0 50px rgba(0, 0, 0, 0.2);
+      min-height: 0;
     }
 
     canvas { display: block; width: 100%; height: 100%; }
 
-    .panel {
-      border-left: 1px solid var(--line);
-      padding: 2rem 1.5rem;
+    /* Al arrastrar una plantilla encima, el lienzo lo indica. */
+    .plate.drop-target { outline: 2px dashed var(--planet); outline-offset: -10px; }
+
+    /* Panel plegado: el lienzo ocupa todo el ancho. */
+    body.panel-hidden .layout { grid-template-columns: 1fr; }
+
+    body.panel-hidden .panel { display: none; }
+
+    /* Botón para plegar o mostrar el panel, arriba a la derecha del lienzo. */
+    .panel-toggle {
+      position: absolute;
+      top: 18px;
+      right: 18px;
+      width: 44px;
+      height: 44px;
+      padding: 0;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      color: var(--ink);
+    }
+
+    .panel-toggle:hover { background: rgba(255, 255, 255, 0.18); }
+
+    .panel-toggle svg { width: 22px; height: 22px; }
+
+    /* Con el panel oculto, la flecha apunta hacia adentro: "abrir". */
+    body.panel-hidden .panel-toggle .arrow { transform: rotate(180deg); transform-origin: 9.5px 12px; }
+
+    /* El lienzo se arrastra para mover la vista. */
+    canvas#plate { cursor: grab; touch-action: none; }
+
+    .plate.panning canvas#plate { cursor: grabbing; }
+
+    /* Botones de zoom en columna, debajo del botón del panel. */
+    .zoom {
+      position: absolute;
+      top: 72px;
+      right: 18px;
       display: flex;
       flex-direction: column;
-      gap: 1.5rem;
+      width: 44px;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .zoom button {
+      width: 44px;
+      height: 42px;
+      padding: 0;
+      display: grid;
+      place-items: center;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      color: var(--ink);
+    }
+
+    .zoom button + button { border-top: 1px solid var(--line); }
+
+    .zoom button:hover { background: rgba(255, 255, 255, 0.14); }
+
+    .zoom svg { width: 20px; height: 20px; }
+
+    /* Controles de reproducción flotando sobre el lienzo. */
+    .controls {
+      position: absolute;
+      right: 20px;
+      bottom: 20px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 0.6rem;
+    }
+
+    .controls button { border-radius: 999px; padding: 0.7rem 1.4rem; }
+
+    .controls #pause {
+      background: #fff;
+      color: #120F2E;
+      border: 1px solid #fff;
+      box-shadow: 0 6px 24px rgba(255, 255, 255, 0.18);
+    }
+
+    .controls .secondary {
+      background: rgba(10, 8, 30, 0.45);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border-color: rgba(255, 255, 255, 0.55);
+    }
+
+    /* ---------- Panel lateral ---------- */
+
+    .panel {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
       overflow-y: auto;
+      min-height: 0;
+      padding-right: 4px;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
     }
 
-    .panel form p { margin: 1rem 0 0; }
+    .card { border-radius: var(--radius); padding: 1.25rem; }
 
-    h1 {
-      font: 600 2.25rem/1.1 var(--serif);
-      margin: 0 0 0.5rem;
-      letter-spacing: -0.01em;
-    }
-
-    .lede { margin: 0; color: var(--ink-dim); }
-
-    fieldset { border: 0; margin: 0; padding: 0; }
-
-    legend {
-      font: 600 1.25rem/1.2 var(--serif);
-      margin-bottom: 0.75rem;
+    h2, legend {
+      font: 600 1.1rem/1.2 var(--display);
+      margin: 0 0 0.9rem;
       padding: 0;
     }
 
+    .card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; width: 100%; }
+
+    .card-head small { font: 400 0.8rem var(--sans); color: var(--ink-dim); }
+
+    fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+
+    /* Escenarios: tarjetas con miniatura, como una lista de contenidos. */
     .scenario {
       display: grid;
-      grid-template-columns: auto 1fr;
-      gap: 0 0.75rem;
-      padding: 0.75rem 0;
-      border-top: 1px solid var(--line);
+      grid-template-columns: 64px 1fr auto;
+      align-items: center;
+      gap: 0 0.85rem;
+      padding: 0.6rem;
+      margin-bottom: 0.6rem;
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(0, 0, 0, 0.18);
       cursor: pointer;
+      transition: background 0.2s, border-color 0.2s, transform 0.2s;
     }
 
-    .scenario:last-of-type { border-bottom: 1px solid var(--line); }
+    .scenario:hover { background: rgba(255, 255, 255, 0.07); }
 
+    .scenario:has(input:checked) {
+      background: linear-gradient(120deg, rgba(139, 92, 246, 0.30), rgba(59, 130, 246, 0.18));
+      border-color: rgba(167, 139, 250, 0.55);
+    }
+
+    .scenario:has(input:focus-visible) { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+    .thumb {
+      grid-row: span 2;
+      width: 64px;
+      height: 64px;
+      border-radius: 16px;
+      background: radial-gradient(circle at 30% 25%, #2A1F5C, #0A0820 75%);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .scenario strong { font: 600 1rem var(--display); align-self: end; }
+
+    .scenario span { grid-column: 2; color: var(--ink-dim); font-size: 0.82rem; line-height: 1.35; align-self: start; }
+
+    /* El radio se ve como el botón redondo de "reproducir". */
     .scenario input {
-      accent-color: var(--sodium);
-      margin: 0.3rem 0 0;
-      width: 1rem;
-      height: 1rem;
-    }
-
-    .scenario strong { font-weight: 700; }
-
-    .scenario span { grid-column: 2; color: var(--ink-dim); font-size: 0.9rem; }
-
-    button {
-      font: 700 1rem var(--sans);
-      border-radius: 4px;
-      padding: 0.7rem 1.1rem;
+      grid-column: 3;
+      grid-row: 1 / span 2;
+      appearance: none;
+      width: 32px;
+      height: 32px;
+      margin: 0;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.12);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      display: grid;
+      place-content: center;
       cursor: pointer;
     }
 
-    .run {
-      background: var(--sodium);
-      color: var(--plate-deep);
-      border: 1px solid var(--sodium);
+    .scenario input::before {
+      content: "";
+      width: 0;
+      height: 0;
+      margin-left: 3px;
+      border-left: 9px solid var(--ink-dim);
+      border-top: 6px solid transparent;
+      border-bottom: 6px solid transparent;
+    }
+
+    .scenario input:checked { background: #fff; border-color: #fff; }
+
+    .scenario input:checked::before { border-left-color: #120F2E; }
+
+    /* Plantillas que se arrastran al lienzo. */
+    .templates { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+
+    .template {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.2rem;
+      padding: 0.9rem 0.5rem;
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: radial-gradient(circle at 50% 30%, rgba(139, 92, 246, 0.18), rgba(0, 0, 0, 0.2) 70%);
+      cursor: grab;
+      user-select: none;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+
+    .template:hover { border-color: rgba(167, 139, 250, 0.6); transform: translateY(-2px); }
+
+    .template:active { cursor: grabbing; }
+
+    .template svg { width: 48px; height: 48px; }
+
+    .template strong { font: 600 0.95rem var(--display); }
+
+    .template small { color: var(--ink-dim); }
+
+    .hint { margin: 0.75rem 0 0; color: var(--ink-dim); font-size: 0.83rem; line-height: 1.45; }
+
+    .body-editor {
+      margin-top: 1rem;
+      padding: 1rem;
+      border-radius: 20px;
+      background: rgba(0, 0, 0, 0.22);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .body-editor h2 { margin-bottom: 0.25rem; }
+
+    .body-editor .hint { margin-top: 0; }
+
+    .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin: 0.9rem 0; }
+
+    .fields label { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.8rem; color: var(--ink-dim); }
+
+    .fields label.wide { grid-column: 1 / -1; }
+
+    input[type="number"], select {
+      font: 1rem var(--sans);
+      color: var(--ink);
+      background: var(--plate-deep);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 0.5rem 0.7rem;
       width: 100%;
     }
 
-    .run:disabled { opacity: 0.55; cursor: progress; }
+    select option { background: #120F2E; }
+
+    .row { display: flex; gap: 0.6rem; }
+
+    .row button { flex: 1; }
+
+    button {
+      font: 600 0.95rem var(--display);
+      border-radius: 999px;
+      padding: 0.7rem 1.1rem;
+      cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.2s, border-color 0.2s, background 0.2s;
+    }
+
+    .run {
+      width: 100%;
+      margin-top: 0.4rem;
+      padding: 0.9rem 1.1rem;
+      font-size: 1.05rem;
+      color: #fff;
+      border: 0;
+      background: linear-gradient(120deg, var(--violet), var(--blue));
+      box-shadow: 0 8px 28px rgba(99, 102, 241, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+    }
+
+    .run:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 10px 34px rgba(99, 102, 241, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.25); }
+
+    .run:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
 
     .secondary {
-      background: transparent;
+      background: rgba(255, 255, 255, 0.06);
       color: var(--ink);
       border: 1px solid var(--line);
     }
 
-    .secondary:hover:not(:disabled) { border-color: var(--ink-dim); }
+    .secondary:hover:not(:disabled) { border-color: rgba(255, 255, 255, 0.45); background: rgba(255, 255, 255, 0.1); }
 
-    button:focus-visible, .scenario input:focus-visible {
+    .secondary:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    button:focus-visible, input:focus-visible, select:focus-visible, .template:focus-visible {
       outline: 2px solid var(--ink);
       outline-offset: 2px;
     }
 
-    .status { min-height: 4.5rem; }
+    .status p { margin: 0 0 0.6rem; }
 
-    .status p { margin: 0 0 0.5rem; }
+    .status p:last-child { margin-bottom: 0; }
 
     .status .error { color: var(--error); }
 
     progress {
       width: 100%;
-      height: 6px;
+      height: 8px;
       appearance: none;
       border: 0;
-      border-radius: 3px;
-      background: var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.1);
       overflow: hidden;
     }
 
-    progress::-webkit-progress-bar { background: var(--line); }
-    progress::-webkit-progress-value { background: var(--sodium); }
-    progress::-moz-progress-bar { background: var(--sodium); }
+    progress::-webkit-progress-bar { background: rgba(255, 255, 255, 0.1); }
+    progress::-webkit-progress-value { background: linear-gradient(90deg, var(--violet), var(--planet)); border-radius: 999px; }
+    progress::-moz-progress-bar { background: linear-gradient(90deg, var(--violet), var(--planet)); border-radius: 999px; }
 
-    .readout { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 0.35rem 1rem; }
+    /* Lecturas como fichas grandes. */
+    .readout { margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
 
-    .readout dt { color: var(--ink-dim); }
+    .tile {
+      padding: 0.85rem 1rem;
+      border-radius: 18px;
+      background: rgba(0, 0, 0, 0.22);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
 
-    .readout dd { margin: 0; font-variant-numeric: tabular-nums; text-align: right; }
+    .readout dt { color: var(--ink-dim); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; }
 
-    .hint { margin: 0.5rem 0 0; color: var(--ink-dim); font-size: 0.85rem; }
+    .readout dd {
+      margin: 0.2rem 0 0;
+      font: 600 1.15rem/1.25 var(--display);
+      font-variant-numeric: tabular-nums;
+    }
 
-    .controls { display: flex; gap: 0.75rem; }
-
-    .controls button { flex: 1; }
+    .readout dd.warning { color: var(--error); }
 
     [hidden] { display: none !important; }
 
-    /* En pantallas angostas el panel va debajo de la placa. */
-    @media (max-width: 760px) {
-      body { grid-template-columns: 1fr; grid-template-rows: 50vh auto; height: auto; }
-      .plate { min-height: 0; }
-      .panel { border-left: 0; border-top: 1px solid var(--line); padding: 1.5rem 1rem; }
+    /* En pantallas angostas el panel va debajo del lienzo. */
+    @media (max-width: 820px) {
+      body { height: auto; overflow: visible; padding: 12px 16px 24px; gap: 14px; }
+      .topbar { flex-wrap: wrap; border-radius: 26px; padding: 0.7rem; gap: 0.6rem; }
+      .modes { margin-left: 0; width: 100%; order: 3; }
+      .modes button { flex: 1; padding: 0.55rem 0.5rem; }
+      .layout { grid-template-columns: 1fr; }
+      .plate { height: 55vh; }
+      .controls { top: 14px; right: 14px; bottom: auto; }
+      .controls button { padding: 0.5rem 1rem; font-size: 0.85rem; }
+      .panel { overflow: visible; padding-right: 0; }
+      /* En celular el panel ya va debajo: no hace falta plegarlo. */
+      .panel-toggle { display: none; }
+      /* Los controles de reproducción van arriba a la derecha: el zoom, a la izquierda. */
+      .zoom { top: 14px; left: 14px; right: auto; }
+      body.panel-hidden .panel { display: flex; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { transition: none !important; }
     }
   </style>
 </head>
 <body>
-  <main class="plate">
-    <canvas id="plate" aria-label="Animación de las órbitas"></canvas>
-  </main>
+  <canvas id="sky" aria-hidden="true"></canvas>
 
-  <aside class="panel">
-    <header>
+  <header class="topbar glass">
+    <div class="brand">
+      <svg viewBox="0 0 34 34" aria-hidden="true">
+        <defs>
+          <radialGradient id="logo-sun">
+            <stop offset="0" stop-color="#FFF6DD"/>
+            <stop offset="1" stop-color="#FFD27A"/>
+          </radialGradient>
+        </defs>
+        <ellipse cx="17" cy="17" rx="15" ry="7" fill="none" stroke="#A78BFA" stroke-width="1.4" transform="rotate(-25 17 17)"/>
+        <circle cx="17" cy="17" r="5.5" fill="url(#logo-sun)"/>
+        <circle cx="29.5" cy="11.2" r="2.4" fill="#8FE3FF"/>
+      </svg>
       <h1>Orbitlab</h1>
-      <p class="lede">Simulación de gravedad entre varios cuerpos, calculada en el servidor y animada aquí.</p>
-    </header>
-
-    <form id="form">
-      <fieldset>
-        <legend>Escenario</legend>
-        <label class="scenario">
-          <input type="radio" name="scenario" value="sol-tierra" checked>
-          <strong>Sol y Tierra</strong>
-          <span>Una órbita circular de un año, durante 20 años.</span>
-        </label>
-        <label class="scenario">
-          <input type="radio" name="scenario" value="binario">
-          <strong>Sistema binario</strong>
-          <span>Dos estrellas iguales que giran alrededor de su centro común.</span>
-        </label>
-        <label class="scenario">
-          <input type="radio" name="scenario" value="figura-8">
-          <strong>Figura 8</strong>
-          <span>Tres cuerpos iguales que se persiguen en forma de ocho.</span>
-        </label>
-      </fieldset>
-      <p><button class="run" id="run" type="submit">Simular</button></p>
-    </form>
-
-    <section class="status" aria-live="polite">
-      <p id="status-text">Elige un escenario y presiona Simular.</p>
-      <progress id="progress" max="1" value="0" hidden></progress>
-    </section>
-
-    <section id="results" hidden>
-      <dl class="readout">
-        <dt>Tiempo</dt>
-        <dd id="year">—</dd>
-        <dt>Error de energía</dt>
-        <dd id="energy">—</dd>
-      </dl>
-      <p class="hint">Cuánto cambió la energía total del sistema. Menos de 0,1 % indica que el integrador es correcto.</p>
-    </section>
-
-    <div class="controls" id="controls" hidden>
-      <button class="secondary" id="pause" type="button">Pausar</button>
-      <button class="secondary" id="restart" type="button">Repetir</button>
     </div>
-  </aside>
+
+    <nav class="modes" role="group" aria-label="Qué simular">
+      <button type="button" id="mode-scenario" aria-pressed="true">Escenarios</button>
+      <button type="button" id="mode-editor" aria-pressed="false">Crear sistema</button>
+    </nav>
+  </header>
+
+  <div class="layout">
+    <main class="plate" id="plate-area">
+      <canvas id="plate" aria-label="Animación de las órbitas"></canvas>
+
+      <button type="button" class="panel-toggle glass" id="panel-toggle" aria-controls="panel" aria-expanded="true" aria-label="Ocultar panel" title="Ocultar panel">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          <line x1="15" y1="4" x2="15" y2="20" stroke="currentColor" stroke-width="1.6"/>
+          <path class="arrow" d="M8 9l3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+
+      <div class="zoom glass" role="group" aria-label="Zoom">
+        <button type="button" id="zoom-in" aria-label="Acercar" title="Acercar (o usa la rueda del mouse)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+        <button type="button" id="zoom-out" aria-label="Alejar" title="Alejar">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+        <button type="button" id="zoom-reset" aria-label="Volver a encuadrar" title="Volver a encuadrar">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="controls" id="controls" hidden>
+        <button class="secondary" id="back-to-editor" type="button" hidden>Volver a editar</button>
+        <button class="secondary" id="restart" type="button">Repetir</button>
+        <button id="pause" type="button">Pausar</button>
+      </div>
+    </main>
+
+    <aside class="panel" id="panel">
+      <form id="form" class="card glass">
+        <!-- Modo escenarios -->
+        <fieldset id="scenario-section">
+          <legend class="card-head">Escenarios <small>3 precargados</small></legend>
+          <label class="scenario">
+            <svg class="thumb" viewBox="0 0 64 64" aria-hidden="true">
+              <circle cx="32" cy="32" r="20" fill="none" stroke="rgba(255,255,255,0.28)" stroke-dasharray="2 3"/>
+              <circle cx="32" cy="32" r="9" fill="#FFD27A" opacity="0.25"/>
+              <circle cx="32" cy="32" r="5" fill="#FFD27A"/>
+              <circle cx="46" cy="18" r="2.6" fill="#8FE3FF"/>
+              <circle cx="12" cy="10" r="0.8" fill="#fff"/>
+              <circle cx="54" cy="52" r="0.7" fill="#fff"/>
+            </svg>
+            <strong>Sol y Tierra</strong>
+            <span>Una órbita circular de un año, durante 20 años.</span>
+            <input type="radio" name="scenario" value="sol-tierra" checked aria-label="Sol y Tierra">
+          </label>
+          <label class="scenario">
+            <svg class="thumb" viewBox="0 0 64 64" aria-hidden="true">
+              <circle cx="32" cy="32" r="14" fill="none" stroke="rgba(255,255,255,0.28)" stroke-dasharray="2 3"/>
+              <circle cx="20" cy="40" r="8" fill="#FFD27A" opacity="0.22"/>
+              <circle cx="44" cy="24" r="8" fill="#FFD27A" opacity="0.22"/>
+              <circle cx="20" cy="40" r="4.5" fill="#FFD27A"/>
+              <circle cx="44" cy="24" r="4.5" fill="#FFD27A"/>
+              <circle cx="10" cy="14" r="0.8" fill="#fff"/>
+              <circle cx="52" cy="54" r="0.7" fill="#fff"/>
+            </svg>
+            <strong>Sistema binario</strong>
+            <span>Dos estrellas iguales que giran alrededor de su centro común.</span>
+            <input type="radio" name="scenario" value="binario" aria-label="Sistema binario">
+          </label>
+          <label class="scenario">
+            <svg class="thumb" viewBox="0 0 64 64" aria-hidden="true">
+              <path d="M32 32 C 40 20, 56 20, 56 32 C 56 44, 40 44, 32 32 C 24 20, 8 20, 8 32 C 8 44, 24 44, 32 32 Z" fill="none" stroke="rgba(255,255,255,0.32)" stroke-dasharray="2 3"/>
+              <circle cx="32" cy="32" r="3.6" fill="#FFD27A"/>
+              <circle cx="51" cy="24.5" r="3.6" fill="#FFD27A"/>
+              <circle cx="13" cy="39.5" r="3.6" fill="#FFD27A"/>
+              <circle cx="14" cy="10" r="0.8" fill="#fff"/>
+              <circle cx="50" cy="54" r="0.7" fill="#fff"/>
+            </svg>
+            <strong>Figura 8</strong>
+            <span>Tres cuerpos iguales que se persiguen en forma de ocho.</span>
+            <input type="radio" name="scenario" value="figura-8" aria-label="Figura 8">
+          </label>
+        </fieldset>
+
+        <!-- Modo editor -->
+        <section id="editor-section" hidden>
+          <h2 class="card-head">Tu sistema <small>hasta 10 cuerpos</small></h2>
+          <div class="templates">
+            <div class="template" draggable="true" data-kind="star" tabindex="0" aria-label="Estrella: arrástrala al lienzo">
+              <svg viewBox="0 0 48 48" aria-hidden="true">
+                <defs>
+                  <radialGradient id="glow">
+                    <stop offset="0" stop-color="#FFD27A" stop-opacity="0.6"/>
+                    <stop offset="1" stop-color="#FFD27A" stop-opacity="0"/>
+                  </radialGradient>
+                  <radialGradient id="star-core">
+                    <stop offset="0" stop-color="#FFF8E6"/>
+                    <stop offset="1" stop-color="#FFD27A"/>
+                  </radialGradient>
+                </defs>
+                <circle cx="24" cy="24" r="23" fill="url(#glow)"/>
+                <circle cx="24" cy="24" r="9" fill="url(#star-core)"/>
+              </svg>
+              <strong>Estrella</strong>
+              <small>1 masa solar</small>
+            </div>
+            <div class="template" draggable="true" data-kind="planet" tabindex="0" aria-label="Planeta: arrástralo al lienzo">
+              <svg viewBox="0 0 48 48" aria-hidden="true">
+                <ellipse cx="24" cy="24" rx="15" ry="4.5" fill="none" stroke="rgba(143,227,255,0.45)" stroke-width="1.2" transform="rotate(-18 24 24)"/>
+                <circle cx="24" cy="24" r="7" fill="#8FE3FF"/>
+                <circle cx="21.5" cy="21.5" r="2.5" fill="#fff" opacity="0.45"/>
+              </svg>
+              <strong>Planeta</strong>
+              <small>Como la Tierra</small>
+            </div>
+          </div>
+          <p class="hint" id="editor-hint">Arrastra una estrella o un planeta al lienzo. Haz clic en un cuerpo para editarlo. Al simular, el sistema se ve desde su centro de masas, para que no se desplace fuera de la vista.</p>
+
+          <!-- Recuadro del cuerpo seleccionado: masa y velocidad; la posición la da el lienzo. -->
+          <div class="body-editor" id="body-editor" hidden>
+            <h2 id="body-title">Cuerpo</h2>
+            <p class="hint" id="body-position"></p>
+            <div class="fields">
+              <label class="wide">Masa (masas solares)
+                <input type="number" id="field-mass" step="any" min="0">
+              </label>
+              <label>Velocidad x (UA/año)
+                <input type="number" id="field-vx" step="any">
+              </label>
+              <label>Velocidad y (UA/año)
+                <input type="number" id="field-vy" step="any">
+              </label>
+            </div>
+            <div class="row">
+              <button type="button" class="secondary" id="circular">Órbita circular</button>
+              <button type="button" class="secondary" id="remove">Eliminar</button>
+            </div>
+            <p class="hint" id="circular-hint" hidden>Agrega una estrella para poder orbitarla.</p>
+          </div>
+
+          <div class="fields">
+            <label class="wide">Duración
+              <select id="duration">
+                <option value="1">1 año</option>
+                <option value="5" selected>5 años</option>
+                <option value="10">10 años</option>
+                <option value="20">20 años</option>
+              </select>
+            </label>
+          </div>
+          <div class="row">
+            <button type="button" class="secondary" id="clear">Vaciar lienzo</button>
+          </div>
+        </section>
+
+        <p><button class="run" id="run" type="submit">Simular</button></p>
+      </form>
+
+      <section class="card glass status" aria-live="polite">
+        <p id="status-text">Elige un escenario y presiona Simular.</p>
+        <progress id="progress" max="1" value="0" hidden></progress>
+      </section>
+
+      <section class="card glass" id="results" hidden>
+        <dl class="readout">
+          <div class="tile">
+            <dt>Tiempo</dt>
+            <dd id="year">—</dd>
+          </div>
+          <div class="tile">
+            <dt>Error de energía</dt>
+            <dd id="energy">—</dd>
+          </div>
+        </dl>
+        <p class="hint" id="energy-hint"></p>
+      </section>
+    </aside>
+  </div>
+
+  <script>
+    // Cielo de fondo: estrellas que titilan y, de vez en cuando, una fugaz.
+    (() => {
+      const sky = document.getElementById("sky");
+      const c = sky.getContext("2d");
+      const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const tints = ["#FFFFFF", "#FFFFFF", "#FFFFFF", "#CFE0FF", "#E4D7FF", "#FFE6C2"];
+      let stars = [];
+      let w = 0;
+      let h = 0;
+      let shooting = null;
+      let nextShot = performance.now() + 4000;
+
+      function build() {
+        const ratio = window.devicePixelRatio || 1;
+        w = innerWidth;
+        h = innerHeight;
+        sky.width = w * ratio;
+        sky.height = h * ratio;
+        c.setTransform(ratio, 0, 0, ratio, 0, 0);
+        stars = Array.from({ length: Math.round((w * h) / 2400) }, () => {
+          const bright = Math.random() < 0.06;
+          return {
+            x: Math.random() * w,
+            y: Math.random() * h,
+            r: bright ? 1 + Math.random() * 0.9 : 0.25 + Math.random() * 0.8,
+            a: 0.35 + Math.random() * 0.6,
+            speed: 0.4 + Math.random() * 1.6,
+            phase: Math.random() * Math.PI * 2,
+            tint: tints[Math.floor(Math.random() * tints.length)],
+            bright,
+          };
+        });
+        if (still) paint(0);
+      }
+
+      function paint(t) {
+        c.clearRect(0, 0, w, h);
+        for (const s of stars) {
+          const alpha = still ? s.a : s.a * (0.6 + 0.4 * Math.sin((t / 1000) * s.speed + s.phase));
+          c.globalAlpha = alpha;
+          c.fillStyle = s.tint;
+          if (s.bright) {
+            // Halo y destello en cruz para las estrellas más brillantes.
+            c.globalAlpha = alpha * 0.18;
+            c.beginPath();
+            c.arc(s.x, s.y, s.r * 4, 0, Math.PI * 2);
+            c.fill();
+            c.globalAlpha = alpha * 0.5;
+            c.fillRect(s.x - s.r * 4, s.y - 0.3, s.r * 8, 0.6);
+            c.fillRect(s.x - 0.3, s.y - s.r * 4, 0.6, s.r * 8);
+            c.globalAlpha = alpha;
+          }
+          c.beginPath();
+          c.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+          c.fill();
+        }
+        c.globalAlpha = 1;
+      }
+
+      function shoot(t) {
+        if (!shooting && t > nextShot) {
+          shooting = { x: Math.random() * w * 0.7 + w * 0.2, y: Math.random() * h * 0.4, start: t };
+          nextShot = t + 7000 + Math.random() * 9000;
+        }
+        if (!shooting) return;
+        const life = (t - shooting.start) / 900;
+        if (life >= 1) { shooting = null; return; }
+        const x = shooting.x - life * 320;
+        const y = shooting.y + life * 160;
+        const tail = c.createLinearGradient(x, y, x + 120, y - 60);
+        tail.addColorStop(0, `rgba(255, 255, 255, ${0.9 * (1 - life)})`);
+        tail.addColorStop(1, "rgba(255, 255, 255, 0)");
+        c.strokeStyle = tail;
+        c.lineWidth = 1.4;
+        c.beginPath();
+        c.moveTo(x, y);
+        c.lineTo(x + 120, y - 60);
+        c.stroke();
+      }
+
+      function frame(t) {
+        paint(t);
+        shoot(t);
+        requestAnimationFrame(frame);
+      }
+
+      window.addEventListener("resize", build);
+      build();
+      if (!still) requestAnimationFrame(frame);
+    })();
+  </script>
 
   <script>
     const POLL_MS = 500;
@@ -227,24 +782,61 @@
     const TRAIL = 160;
     // Cuerpos de más de 0,01 masas solares se dibujan como estrellas (decisión del plan).
     const STAR_MASS = 0.01;
+    // Mismas unidades que el servidor: UA, años y masas solares.
+    const G = 4 * Math.PI ** 2;
+    const MAX_BODIES = 10;
+    // Paso del integrador para los sistemas propios; se guardan 1.000 fotogramas.
+    const EDITOR_DT = 0.001;
+    const EDITOR_FRAMES = 1000;
+    // El editor muestra 2,5 UA desde el centro hasta el borde más cercano.
+    const EDITOR_HALF_SPAN = 2.5;
+    // La flecha de velocidad muestra hacia dónde estará el cuerpo en 0,1 años.
+    const ARROW_YEARS = 0.1;
+    // Masa sugerida por cada plantilla.
+    const TEMPLATES = { star: 1.0, planet: 3e-6 };
+    // Error relativo de energía aceptable (requisito del plan: < 0,1 %).
+    const ENERGY_LIMIT = 1e-3;
 
     const canvas = document.getElementById("plate");
+    const plateArea = document.getElementById("plate-area");
     const ctx = canvas.getContext("2d");
     const css = getComputedStyle(document.documentElement);
     const color = (name) => css.getPropertyValue(name).trim();
+    const $ = (id) => document.getElementById(id);
 
     const ui = {
-      form: document.getElementById("form"),
-      run: document.getElementById("run"),
-      statusText: document.getElementById("status-text"),
-      progress: document.getElementById("progress"),
-      results: document.getElementById("results"),
-      year: document.getElementById("year"),
-      energy: document.getElementById("energy"),
-      controls: document.getElementById("controls"),
-      pause: document.getElementById("pause"),
-      restart: document.getElementById("restart"),
+      form: $("form"),
+      modeScenario: $("mode-scenario"),
+      modeEditor: $("mode-editor"),
+      scenarioSection: $("scenario-section"),
+      editorSection: $("editor-section"),
+      editorHint: $("editor-hint"),
+      bodyEditor: $("body-editor"),
+      bodyTitle: $("body-title"),
+      bodyPosition: $("body-position"),
+      mass: $("field-mass"),
+      vx: $("field-vx"),
+      vy: $("field-vy"),
+      circular: $("circular"),
+      circularHint: $("circular-hint"),
+      remove: $("remove"),
+      duration: $("duration"),
+      clear: $("clear"),
+      run: $("run"),
+      statusText: $("status-text"),
+      progress: $("progress"),
+      results: $("results"),
+      year: $("year"),
+      energy: $("energy"),
+      energyHint: $("energy-hint"),
+      controls: $("controls"),
+      pause: $("pause"),
+      restart: $("restart"),
+      backToEditor: $("back-to-editor"),
     };
+
+    let mode = "scenario";  // "scenario" o "editor"
+    let busy = false;       // hay una simulación en curso en el servidor
 
     // Estado de la animación actual.
     let sim = null;  // { frames, masses, interval, totalYears, view }
@@ -252,13 +844,25 @@
     let playing = false;
     let lastTick = 0;
 
+    // Estado del editor: los cuerpos colocados y cuál está seleccionado.
+    let bodies = [];  // { x, y, vx, vy, mass }
+    let selected = -1;
+
     // ---------- Comunicación con la API ----------
 
-    async function api(method, path) {
-      const response = await fetch(path, { method });
+    async function api(method, path, payload) {
+      const response = await fetch(path, {
+        method,
+        headers: payload ? { "Content-Type": "application/json" } : {},
+        body: payload ? JSON.stringify(payload) : undefined,
+      });
       const body = await response.json();
       if (!response.ok) {
-        throw new Error(body.detail || `la API respondió ${response.status}`);
+        // Un 422 trae una lista de errores; los demás, un texto.
+        const detail = Array.isArray(body.detail)
+          ? body.detail.map((error) => error.msg).join("; ")
+          : body.detail;
+        throw new Error(detail || `la API respondió ${response.status}`);
       }
       return body;
     }
@@ -270,9 +874,10 @@
       ui.statusText.classList.toggle("error", isError);
     }
 
-    // POST al escenario, polling del estado y, al terminar, pedir los fotogramas.
-    async function runScenario(name) {
-      ui.run.disabled = true;
+    // Lanza el experimento, hace polling del estado y, al terminar, pide los fotogramas.
+    async function simulate(path, payload) {
+      busy = true;
+      updateRunButton();
       ui.run.textContent = "Simulando…";
       ui.results.hidden = true;
       ui.controls.hidden = true;
@@ -281,7 +886,7 @@
       draw();
 
       try {
-        const { id } = await api("POST", `/experiments/from-scenario/${name}`);
+        const { id } = await api("POST", path, payload);
         ui.progress.hidden = false;
         ui.progress.value = 0;
 
@@ -308,11 +913,229 @@
         setStatus(`${detail.name}: ${frames.length.toLocaleString("es")} fotogramas.`);
       } catch (error) {
         setStatus(`No se pudo simular: ${error.message}.`, true);
+        draw();
       } finally {
+        busy = false;
         ui.progress.hidden = true;
-        ui.run.disabled = false;
         ui.run.textContent = "Simular";
+        updateRunButton();
       }
+    }
+
+    function editorPayload() {
+      const years = Number(ui.duration.value);
+      const steps = Math.round(years / EDITOR_DT);
+
+      // Se resta la velocidad del centro de masas: si no, el sistema entero
+      // se desplaza (por ejemplo, una estrella que orbita a otra quieta) y sale
+      // de la vista. No cambia la física interna, solo el punto de vista.
+      const totalMass = bodies.reduce((sum, b) => sum + b.mass, 0);
+      const comVx = bodies.reduce((sum, b) => sum + b.mass * b.vx, 0) / totalMass;
+      const comVy = bodies.reduce((sum, b) => sum + b.mass * b.vy, 0) / totalMass;
+
+      return {
+        name: "Sistema propio",
+        dt: EDITOR_DT,
+        steps,
+        save_every: Math.max(1, Math.round(steps / EDITOR_FRAMES)),
+        bodies: bodies.map(({ x, y, vx, vy, mass }) => ({
+          x, y, vx: vx - comVx, vy: vy - comVy, mass,
+        })),
+      };
+    }
+
+    // ---------- Modos ----------
+
+    function setMode(next) {
+      mode = next;
+      ui.modeScenario.setAttribute("aria-pressed", String(mode === "scenario"));
+      ui.modeEditor.setAttribute("aria-pressed", String(mode === "editor"));
+      ui.scenarioSection.hidden = mode !== "scenario";
+      ui.editorSection.hidden = mode !== "editor";
+      stopAnimation();
+      resetCamera();
+      setStatus(mode === "scenario"
+        ? "Elige un escenario y presiona Simular."
+        : "Coloca al menos 2 cuerpos y presiona Simular.");
+      updateRunButton();
+      draw();
+    }
+
+    function stopAnimation() {
+      playing = false;
+      sim = null;
+      ui.results.hidden = true;
+      ui.controls.hidden = true;
+    }
+
+    function updateRunButton() {
+      ui.run.disabled = busy || (mode === "editor" && bodies.length < 2);
+    }
+
+    // ---------- Editor de cuerpos ----------
+
+    // Vista base del editor: el origen al centro y la misma escala en x e y.
+    function baseEditorView() {
+      const width = canvas.clientWidth;
+      const height = canvas.clientHeight;
+      return {
+        scale: Math.min(width, height) / 2 / EDITOR_HALF_SPAN,
+        cx: width / 2,
+        cy: height / 2,
+      };
+    }
+
+    // Lo que se ve en el editor: la vista base con el zoom y el arrastre aplicados.
+    const editorView = () => applyCamera(baseEditorView());
+
+    // ---------- Cámara: zoom y arrastre ----------
+
+    // El zoom escala alrededor del centro del lienzo y pan desplaza en píxeles.
+    // Se aplica encima de cualquier vista base (la del editor o el encuadre).
+    const camera = { zoom: 1, panX: 0, panY: 0 };
+    const ZOOM_MIN = 0.1;
+    const ZOOM_MAX = 200;
+
+    function applyCamera(base) {
+      const midX = canvas.clientWidth / 2;
+      const midY = canvas.clientHeight / 2;
+      return {
+        scale: base.scale * camera.zoom,
+        cx: midX + (base.cx - midX) * camera.zoom + camera.panX,
+        cy: midY + (base.cy - midY) * camera.zoom + camera.panY,
+      };
+    }
+
+    // La vista base de lo que se está mostrando ahora.
+    function baseView() {
+      if (!sim) return baseEditorView();
+      sim.view ??= mode === "editor"
+        ? baseEditorView()
+        : fitView(canvas.clientWidth, canvas.clientHeight);
+      return sim.view;
+    }
+
+    // Cambia el zoom dejando quieto el punto del espacio que está bajo (px, py).
+    function zoomAt(factor, px, py) {
+      const base = baseView();
+      const before = applyCamera(base);
+      const [wx, wy] = toWorld(before, px, py);
+      camera.zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, camera.zoom * factor));
+      const after = applyCamera(base);
+      // Corrige el desplazamiento para que (wx, wy) siga bajo el cursor.
+      const [sx, sy] = toScreen(after, [wx, wy]);
+      camera.panX += px - sx;
+      camera.panY += py - sy;
+      draw();
+    }
+
+    function panBy(dx, dy) {
+      camera.panX += dx;
+      camera.panY += dy;
+      draw();
+    }
+
+    function resetCamera() {
+      camera.zoom = 1;
+      camera.panX = 0;
+      camera.panY = 0;
+    }
+
+    // Convierte un punto del Canvas (píxeles) a coordenadas físicas (UA).
+    function toWorld(view, px, py) {
+      return [(px - view.cx) / view.scale, (view.cy - py) / view.scale];
+    }
+
+    function canvasPoint(event) {
+      const rect = canvas.getBoundingClientRect();
+      return [event.clientX - rect.left, event.clientY - rect.top];
+    }
+
+    function placeBody(kind, px, py) {
+      if (bodies.length >= MAX_BODIES) {
+        setStatus(`El máximo es ${MAX_BODIES} cuerpos.`, true);
+        return;
+      }
+      const [x, y] = toWorld(editorView(), px, py);
+      bodies.push({ x, y, vx: 0, vy: 0, mass: TEMPLATES[kind] });
+      selected = bodies.length - 1;
+      // Un planeta nuevo arranca en órbita circular si hay una estrella.
+      if (kind === "planet") circularOrbit(selected);
+      setStatus(`${bodies.length} de ${MAX_BODIES} cuerpos.`);
+      refreshEditor();
+    }
+
+    function nearestStar(index) {
+      const body = bodies[index];
+      let best = -1;
+      let bestDistance = Infinity;
+      bodies.forEach((other, j) => {
+        if (j === index || other.mass <= STAR_MASS) return;
+        const distance = Math.hypot(body.x - other.x, body.y - other.y);
+        if (distance < bestDistance) {
+          best = j;
+          bestDistance = distance;
+        }
+      });
+      return best;
+    }
+
+    // v = sqrt(G·(M + m) / r), perpendicular a la línea que une al cuerpo con la
+    // estrella. Con un planeta, m es despreciable y queda el sqrt(G·M / r) del plan;
+    // sumar m hace que también funcione cuando una estrella orbita a otra.
+    // Se suma la velocidad de la estrella para orbitarla aunque ella se mueva.
+    function circularOrbit(index) {
+      const starIndex = nearestStar(index);
+      if (starIndex < 0) return false;
+      const body = bodies[index];
+      const star = bodies[starIndex];
+      const dx = body.x - star.x;
+      const dy = body.y - star.y;
+      const r = Math.hypot(dx, dy);
+      if (r < 1e-3) return false;
+      const speed = Math.sqrt((G * (star.mass + body.mass)) / r);
+      body.vx = star.vx + (-dy / r) * speed;
+      body.vy = star.vy + (dx / r) * speed;
+      return true;
+    }
+
+    function bodyAt(px, py) {
+      const view = editorView();
+      for (let i = bodies.length - 1; i >= 0; i--) {
+        const [sx, sy] = toScreen(view, [bodies[i].x, bodies[i].y]);
+        if (Math.hypot(sx - px, sy - py) <= 12) return i;
+      }
+      return -1;
+    }
+
+    const round = (value) => Math.round(value * 1000) / 1000;
+
+    // Sincroniza el recuadro del cuerpo seleccionado y redibuja.
+    function refreshEditor() {
+      const body = bodies[selected];
+      ui.bodyEditor.hidden = !body;
+      if (body) {
+        const isStar = body.mass > STAR_MASS;
+        ui.bodyTitle.textContent = `${isStar ? "Estrella" : "Planeta"} ${selected + 1}`;
+        ui.bodyPosition.textContent =
+          `Posición: (${formatNumber(body.x)}; ${formatNumber(body.y)}) UA`;
+        // No pisar el campo que se está escribiendo.
+        // La masa con cifras significativas: 3e-6 redondeado a decimales daría 0.
+        if (document.activeElement !== ui.mass) ui.mass.value = Number(body.mass.toPrecision(4));
+        if (document.activeElement !== ui.vx) ui.vx.value = round(body.vx);
+        if (document.activeElement !== ui.vy) ui.vy.value = round(body.vy);
+        const canOrbit = nearestStar(selected) >= 0;
+        ui.circular.disabled = !canOrbit;
+        ui.circularHint.hidden = canOrbit;
+      }
+      updateRunButton();
+      draw();
+    }
+
+    function backToEditor() {
+      stopAnimation();
+      setStatus(`${bodies.length} de ${MAX_BODIES} cuerpos.`);
+      refreshEditor();
     }
 
     // ---------- Animación ----------
@@ -325,9 +1148,21 @@
         totalYears: interval * (frames.length - 1),
         view: null,
       };
+      // Un escenario nuevo se encuadra entero; un sistema propio conserva el
+      // zoom con el que se armó.
+      if (mode === "scenario") resetCamera();
       ui.energy.textContent = formatScientific(detail.energy_error);
+      // Más de 0,1 % (el límite del plan): el resultado no es confiable.
+      const unreliable = detail.energy_error > ENERGY_LIMIT;
+      ui.energy.classList.toggle("warning", unreliable);
+      ui.energyHint.textContent = unreliable
+        ? "La energía cambió más de 0,1 %: probablemente dos cuerpos pasaron muy cerca y el paso de tiempo fijo no alcanzó a seguirlos. El resultado no es confiable."
+        : "Cuánto cambió la energía total del sistema. Menos de 0,1 % indica que el integrador es correcto.";
       ui.results.hidden = false;
       ui.controls.hidden = false;
+      ui.backToEditor.hidden = mode !== "editor";
+      // Mientras se anima no se edita: el recuadro vuelve con "Volver a editar".
+      ui.bodyEditor.hidden = true;
       frameIndex = 0;
       setPlaying(true);
     }
@@ -350,7 +1185,6 @@
         draw();
         if (frameIndex === sim.frames.length - 1) {
           setPlaying(false);
-          ui.pause.textContent = "Reanudar";
           return;
         }
       }
@@ -359,7 +1193,7 @@
 
     // Encaja todas las posiciones de la simulación en el Canvas, con la misma
     // escala en x e y (si no, un círculo se vería como un óvalo).
-    function computeView(width, height) {
+    function fitView(width, height) {
       let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
       for (const frame of sim.frames) {
         for (const [x, y] of frame) {
@@ -367,7 +1201,7 @@
           minY = Math.min(minY, y); maxY = Math.max(maxY, y);
         }
       }
-      const margin = 0.15;
+      const margin = 0.06;
       const spanX = Math.max(maxX - minX, 1e-6);
       const spanY = Math.max(maxY - minY, 1e-6);
       const scale = Math.min(width / spanX, height / spanY) * (1 - 2 * margin);
@@ -381,29 +1215,76 @@
 
     const toScreen = (view, [x, y]) => [view.cx + x * view.scale, view.cy - y * view.scale];
 
+    // ---------- Dibujo ----------
+
     function draw() {
       const width = canvas.clientWidth;
       const height = canvas.clientHeight;
       ctx.clearRect(0, 0, width, height);
 
-      if (!sim) {
-        ctx.fillStyle = color("--ink-dim");
-        ctx.font = `1rem ${color("--sans")}`;
-        ctx.textAlign = "center";
-        ctx.fillText("Aquí se animarán las órbitas.", width / 2, height / 2);
-        return;
+      if (sim) {
+        drawAnimation(width, height);
+      } else if (mode === "editor") {
+        drawEditor(width, height);
+      } else {
+        drawMessage("Aquí se animarán las órbitas.", width, height);
       }
+    }
 
-      sim.view ??= computeView(width, height);
-      const view = sim.view;
-      const bodies = sim.frames[0].length;
+    function drawMessage(text, width, height) {
+      ctx.fillStyle = color("--ink-dim");
+      ctx.font = `1rem ${color("--sans")}`;
+      ctx.textAlign = "center";
+      ctx.fillText(text, width / 2, height / 2);
+    }
+
+    function drawBody(view, position, mass, highlight = false) {
+      const [x, y] = toScreen(view, position);
+      const isStar = mass > STAR_MASS;
+      const tint = isStar ? color("--sodium") : color("--planet");
+      // Halo: amplio y dorado en las estrellas, apenas un brillo en los planetas.
+      const glow = isStar ? 30 : 11;
+      const rgb = isStar ? "255, 210, 122" : "143, 227, 255";
+      const halo = ctx.createRadialGradient(x, y, 0, x, y, glow);
+      halo.addColorStop(0, `rgba(${rgb}, ${isStar ? 0.55 : 0.35})`);
+      halo.addColorStop(1, `rgba(${rgb}, 0)`);
+      ctx.fillStyle = halo;
+      ctx.beginPath();
+      ctx.arc(x, y, glow, 0, 2 * Math.PI);
+      ctx.fill();
+      // Núcleo con centro casi blanco, para que parezca que emite luz.
+      const radius = isStar ? 7.5 : 4;
+      const core = ctx.createRadialGradient(x - radius * 0.3, y - radius * 0.3, 0, x, y, radius);
+      core.addColorStop(0, "#FFFFFF");
+      core.addColorStop(isStar ? 0.35 : 0.2, tint);
+      core.addColorStop(1, tint);
+      ctx.fillStyle = core;
+      ctx.beginPath();
+      ctx.arc(x, y, radius, 0, 2 * Math.PI);
+      ctx.fill();
+      if (highlight) {
+        ctx.strokeStyle = color("--ink");
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([3, 3]);
+        ctx.beginPath();
+        ctx.arc(x, y, isStar ? 14 : 10, 0, 2 * Math.PI);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+
+    function drawAnimation(width, height) {
+      // Un sistema propio se anima en la misma vista donde se armó; un escenario
+      // se encuadra entero. Así un cuerpo que sale despedido no achica todo.
+      const view = applyCamera(baseView());
+      const count = sim.frames[0].length;
 
       // Estelas: segmentos más transparentes cuanto más viejos.
-      ctx.lineWidth = 1.25;
+      ctx.lineWidth = 1.6;
+      ctx.lineCap = "round";
       const first = Math.max(0, frameIndex - TRAIL);
-      for (let b = 0; b < bodies; b++) {
-        const isStar = sim.masses[b] > STAR_MASS;
-        ctx.strokeStyle = isStar ? color("--sodium") : color("--ink");
+      for (let b = 0; b < count; b++) {
+        ctx.strokeStyle = sim.masses[b] > STAR_MASS ? color("--sodium") : color("--planet");
         for (let i = first + 1; i <= frameIndex; i++) {
           ctx.globalAlpha = 0.6 * ((i - first) / (frameIndex - first + 1));
           const [x0, y0] = toScreen(view, sim.frames[i - 1][b]);
@@ -416,32 +1297,64 @@
       }
       ctx.globalAlpha = 1;
 
-      // Cuerpos: estrellas grandes con halo; planetas pequeños y sólidos.
-      for (let b = 0; b < bodies; b++) {
-        const [x, y] = toScreen(view, sim.frames[frameIndex][b]);
-        const isStar = sim.masses[b] > STAR_MASS;
-        if (isStar) {
-          const halo = ctx.createRadialGradient(x, y, 0, x, y, 22);
-          halo.addColorStop(0, "rgba(242, 193, 78, 0.45)");
-          halo.addColorStop(1, "rgba(242, 193, 78, 0)");
-          ctx.fillStyle = halo;
-          ctx.beginPath();
-          ctx.arc(x, y, 22, 0, 2 * Math.PI);
-          ctx.fill();
-        }
-        ctx.fillStyle = isStar ? color("--sodium") : color("--ink");
-        ctx.beginPath();
-        ctx.arc(x, y, isStar ? 7 : 3.5, 0, 2 * Math.PI);
-        ctx.fill();
+      for (let b = 0; b < count; b++) {
+        drawBody(view, sim.frames[frameIndex][b], sim.masses[b]);
       }
 
       drawScaleBar(view, height);
       ui.year.textContent = `año ${formatNumber(frameIndex * sim.interval)} de ${formatNumber(sim.totalYears)}`;
     }
 
-    // Regla de escala: elige una longitud redonda que mida entre 60 y 160 px.
+    function drawEditor(width, height) {
+      const view = editorView();
+
+      // Cruz tenue en el origen, para orientarse.
+      ctx.strokeStyle = color("--line");
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(view.cx - 10, view.cy); ctx.lineTo(view.cx + 10, view.cy);
+      ctx.moveTo(view.cx, view.cy - 10); ctx.lineTo(view.cx, view.cy + 10);
+      ctx.stroke();
+
+      if (bodies.length === 0) {
+        drawMessage("Arrastra aquí una estrella o un planeta.", width, height * 0.8);
+      }
+
+      // Flechas de velocidad: hacia dónde estará cada cuerpo en ARROW_YEARS.
+      ctx.strokeStyle = color("--ink-dim");
+      ctx.fillStyle = color("--ink-dim");
+      ctx.lineWidth = 1.25;
+      for (const body of bodies) {
+        if (Math.hypot(body.vx, body.vy) < 1e-9) continue;
+        const [x0, y0] = toScreen(view, [body.x, body.y]);
+        const [x1, y1] = toScreen(view, [
+          body.x + body.vx * ARROW_YEARS,
+          body.y + body.vy * ARROW_YEARS,
+        ]);
+        drawArrow(x0, y0, x1, y1);
+      }
+
+      bodies.forEach((body, i) => drawBody(view, [body.x, body.y], body.mass, i === selected));
+      drawScaleBar(view, height);
+    }
+
+    function drawArrow(x0, y0, x1, y1) {
+      const angle = Math.atan2(y1 - y0, x1 - x0);
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.lineTo(x1, y1);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x1 - 7 * Math.cos(angle - 0.4), y1 - 7 * Math.sin(angle - 0.4));
+      ctx.lineTo(x1 - 7 * Math.cos(angle + 0.4), y1 - 7 * Math.sin(angle + 0.4));
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Regla de escala: elige una longitud redonda que mida al menos 60 px.
     function drawScaleBar(view, height) {
-      const options = [0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10];
+      const options = [0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500];
       const length = options.find((au) => au * view.scale >= 60) ?? options.at(-1);
       const px = length * view.scale;
       const x = 24;
@@ -454,13 +1367,14 @@
       ctx.stroke();
       ctx.font = `0.85rem ${color("--sans")}`;
       ctx.textAlign = "left";
-      ctx.fillText(`${formatNumber(length)} UA`, x, y - 10);
+      // Con mucho zoom la regla baja a milésimas de UA: se muestran hasta 3 decimales.
+      ctx.fillText(`${length.toLocaleString("es", { maximumFractionDigits: 3 })} UA`, x, y - 10);
     }
 
     // ---------- Formato ----------
 
     const formatNumber = (value) =>
-      value.toLocaleString("es", { maximumFractionDigits: value < 1 ? 2 : 1 });
+      value.toLocaleString("es", { maximumFractionDigits: Math.abs(value) < 1 ? 2 : 1 });
 
     // 1.03e-13 → "1,0 × 10⁻¹³"
     function formatScientific(value) {
@@ -485,9 +1399,144 @@
 
     // ---------- Eventos ----------
 
+    ui.modeScenario.addEventListener("click", () => setMode("scenario"));
+    ui.modeEditor.addEventListener("click", () => setMode("editor"));
+
     ui.form.addEventListener("submit", (event) => {
       event.preventDefault();
-      runScenario(new FormData(ui.form).get("scenario"));
+      if (mode === "scenario") {
+        const name = new FormData(ui.form).get("scenario");
+        simulate(`/experiments/from-scenario/${name}`);
+      } else {
+        simulate("/experiments", editorPayload());
+      }
+    });
+
+    // Arrastrar y soltar: la plantilla viaja como texto ("star" o "planet").
+    document.querySelectorAll(".template").forEach((template) => {
+      template.addEventListener("dragstart", (event) => {
+        event.dataTransfer.setData("text/plain", template.dataset.kind);
+        event.dataTransfer.effectAllowed = "copy";
+      });
+    });
+
+    canvas.addEventListener("dragover", (event) => {
+      if (mode !== "editor" || sim || busy) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      plateArea.classList.add("drop-target");
+    });
+
+    canvas.addEventListener("dragleave", () => plateArea.classList.remove("drop-target"));
+
+    canvas.addEventListener("drop", (event) => {
+      event.preventDefault();
+      plateArea.classList.remove("drop-target");
+      const kind = event.dataTransfer.getData("text/plain");
+      if (kind in TEMPLATES) placeBody(kind, ...canvasPoint(event));
+    });
+
+    // Clic en el lienzo: seleccionar un cuerpo, o quitar la selección.
+    canvas.addEventListener("click", (event) => {
+      if (mode !== "editor" || sim) return;
+      // Si se acaba de arrastrar la vista, no es un clic de selección.
+      if (dragged) { dragged = false; return; }
+      selected = bodyAt(...canvasPoint(event));
+      refreshEditor();
+    });
+
+    // Rueda del mouse: zoom centrado en el cursor.
+    canvas.addEventListener("wheel", (event) => {
+      event.preventDefault();
+      zoomAt(Math.exp(-event.deltaY * 0.0015), ...canvasPoint(event));
+    }, { passive: false });
+
+    // Arrastrar con un dedo o el mouse mueve la vista; con dos dedos, pellizcar hace zoom.
+    const pointers = new Map();
+    let dragged = false;
+    let pinchDistance = 0;
+
+    canvas.addEventListener("pointerdown", (event) => {
+      pointers.set(event.pointerId, canvasPoint(event));
+      canvas.setPointerCapture(event.pointerId);
+      if (pointers.size === 1) dragged = false;
+      if (pointers.size === 2) {
+        const [a, b] = [...pointers.values()];
+        pinchDistance = Math.hypot(a[0] - b[0], a[1] - b[1]);
+      }
+    });
+
+    canvas.addEventListener("pointermove", (event) => {
+      if (!pointers.has(event.pointerId)) return;
+      const previous = pointers.get(event.pointerId);
+      const point = canvasPoint(event);
+      pointers.set(event.pointerId, point);
+
+      if (pointers.size === 1) {
+        const dx = point[0] - previous[0];
+        const dy = point[1] - previous[1];
+        // Unos píxeles de tolerancia para que un clic tembloroso no mueva la vista.
+        if (!dragged && Math.hypot(dx, dy) < 3) {
+          pointers.set(event.pointerId, previous);
+          return;
+        }
+        dragged = true;
+        plateArea.classList.add("panning");
+        panBy(dx, dy);
+      } else if (pointers.size === 2) {
+        const [a, b] = [...pointers.values()];
+        const distance = Math.hypot(a[0] - b[0], a[1] - b[1]);
+        if (pinchDistance > 0) {
+          zoomAt(distance / pinchDistance, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2);
+        }
+        pinchDistance = distance;
+        dragged = true;
+      }
+    });
+
+    function endPointer(event) {
+      pointers.delete(event.pointerId);
+      pinchDistance = 0;
+      if (pointers.size === 0) plateArea.classList.remove("panning");
+    }
+
+    canvas.addEventListener("pointerup", endPointer);
+    canvas.addEventListener("pointercancel", endPointer);
+
+    // Botones de zoom: acercan o alejan desde el centro del lienzo.
+    const center = () => [canvas.clientWidth / 2, canvas.clientHeight / 2];
+    $("zoom-in").addEventListener("click", () => zoomAt(1.4, ...center()));
+    $("zoom-out").addEventListener("click", () => zoomAt(1 / 1.4, ...center()));
+    $("zoom-reset").addEventListener("click", () => { resetCamera(); draw(); });
+
+    // Los campos del recuadro cambian el cuerpo seleccionado al escribir.
+    for (const [input, key] of [[ui.mass, "mass"], [ui.vx, "vx"], [ui.vy, "vy"]]) {
+      input.addEventListener("input", () => {
+        const value = Number(input.value);
+        if (input.value !== "" && Number.isFinite(value) && bodies[selected]) {
+          bodies[selected][key] = value;
+          refreshEditor();
+        }
+      });
+    }
+
+    ui.circular.addEventListener("click", () => {
+      circularOrbit(selected);
+      refreshEditor();
+    });
+
+    ui.remove.addEventListener("click", () => {
+      bodies.splice(selected, 1);
+      selected = -1;
+      setStatus(`${bodies.length} de ${MAX_BODIES} cuerpos.`);
+      refreshEditor();
+    });
+
+    ui.clear.addEventListener("click", () => {
+      bodies = [];
+      selected = -1;
+      setStatus("Coloca al menos 2 cuerpos y presiona Simular.");
+      refreshEditor();
     });
 
     ui.pause.addEventListener("click", () => {
@@ -500,6 +1549,30 @@
       draw();
       if (!playing) setPlaying(true);
     });
+
+    ui.backToEditor.addEventListener("click", backToEditor);
+
+    // Plegar el panel lateral para darle todo el ancho al lienzo.
+    // La preferencia se recuerda en este navegador, si se puede.
+    const panelToggle = $("panel-toggle");
+
+    function setPanelHidden(hidden) {
+      document.body.classList.toggle("panel-hidden", hidden);
+      const label = hidden ? "Mostrar panel" : "Ocultar panel";
+      panelToggle.setAttribute("aria-expanded", String(!hidden));
+      panelToggle.setAttribute("aria-label", label);
+      panelToggle.title = label;
+      try { localStorage.setItem("orbitlab-panel-hidden", hidden ? "1" : "0"); } catch {}
+      // El lienzo cambió de ancho: se reencuadra.
+      resize();
+    }
+
+    panelToggle.addEventListener("click", () =>
+      setPanelHidden(!document.body.classList.contains("panel-hidden")));
+
+    try {
+      if (localStorage.getItem("orbitlab-panel-hidden") === "1") setPanelHidden(true);
+    } catch {}
 
     window.addEventListener("resize", resize);
     document.fonts.ready.then(resize);
