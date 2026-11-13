@@ -618,7 +618,7 @@
               <small>Como la Tierra</small>
             </div>
           </div>
-          <p class="hint" id="editor-hint">Arrastra una estrella o un planeta al lienzo. Haz clic en un cuerpo para editarlo. Al simular, el sistema se ve desde su centro de masas, para que no se desplace fuera de la vista.</p>
+          <p class="hint" id="editor-hint">Arrastra una estrella o un planeta al lienzo. Haz clic en un cuerpo para editarlo. Al simular, el sistema se ve desde su centro de masas, para que no se desplace fuera de la vista. Los tamaños están exagerados para que se vean: si dos cuerpos se tocan, se fusionan.</p>
 
           <!-- Recuadro del cuerpo seleccionado: masa y velocidad; la posición la da el lienzo. -->
           <div class="body-editor" id="body-editor" hidden>
@@ -797,6 +797,31 @@
     // Error relativo de energía aceptable (requisito del plan: < 0,1 %).
     const ENERGY_LIMIT = 1e-3;
 
+    // Tamaño de los cuerpos: copia de body_radius() en physics/collisions.py.
+    // Si se cambia allí, hay que cambiarlo aquí. Radios en UA, exagerados.
+    const STAR_RADIUS = 0.05;
+    const EARTH_MASS = 3e-6;
+    const PLANET_RADIUS = 0.012;
+    const MAX_PLANET_RADIUS = 0.02;
+    // Con el zoom muy lejano el radio real ocuparía menos de un píxel: por
+    // debajo de este mínimo se dibuja más grande, solo para que se vea.
+    const MIN_RADIUS_PX = { star: 4, planet: 2.5 };
+    // Fotogramas que dura la animación de un choque (a 60 fps, medio segundo).
+    const MERGE_FRAMES = 30;
+
+    function bodyRadius(mass) {
+      if (mass <= 0) return 0;
+      const asStar = STAR_RADIUS * Math.cbrt(mass);
+      const asPlanet = Math.min(PLANET_RADIUS * Math.cbrt(mass / EARTH_MASS), MAX_PLANET_RADIUS);
+      return Math.max(asStar, asPlanet);
+    }
+
+    // Radio en pantalla: el físico convertido a píxeles, con el mínimo visible.
+    function radiusPx(view, mass) {
+      const minimum = mass > STAR_MASS ? MIN_RADIUS_PX.star : MIN_RADIUS_PX.planet;
+      return Math.max(bodyRadius(mass) * view.scale, minimum);
+    }
+
     const canvas = document.getElementById("plate");
     const plateArea = document.getElementById("plate-area");
     const ctx = canvas.getContext("2d");
@@ -839,7 +864,7 @@
     let busy = false;       // hay una simulación en curso en el servidor
 
     // Estado de la animación actual.
-    let sim = null;  // { frames, masses, interval, totalYears, view }
+    let sim = null;  // { frames, masses, merges, interval, totalYears, view }
     let frameIndex = 0;
     let playing = false;
     let lastTick = 0;
@@ -908,9 +933,11 @@
           throw new Error(`la simulación falló: ${detail.error_message}`);
         }
 
-        const { frames, frame_interval } = await api("GET", `/experiments/${id}/frames`);
-        start(frames, detail, frame_interval);
-        setStatus(`${detail.name}: ${frames.length.toLocaleString("es")} fotogramas.`);
+        const { frames, frame_interval, merges } = await api("GET", `/experiments/${id}/frames`);
+        start(frames, detail, frame_interval, merges);
+        const crashes = merges.length === 0 ? ""
+          : merges.length === 1 ? ", 1 choque" : `, ${merges.length} choques`;
+        setStatus(`${detail.name}: ${frames.length.toLocaleString("es")} fotogramas${crashes}.`);
       } catch (error) {
         setStatus(`No se pudo simular: ${error.message}.`, true);
         draw();
@@ -1103,7 +1130,9 @@
       const view = editorView();
       for (let i = bodies.length - 1; i >= 0; i--) {
         const [sx, sy] = toScreen(view, [bodies[i].x, bodies[i].y]);
-        if (Math.hypot(sx - px, sy - py) <= 12) return i;
+        // Al menos 12 px, para poder atinarle a un planeta chiquito.
+        const reach = Math.max(12, radiusPx(view, bodies[i].mass) + 4);
+        if (Math.hypot(sx - px, sy - py) <= reach) return i;
       }
       return -1;
     }
@@ -1140,10 +1169,22 @@
 
     // ---------- Animación ----------
 
-    function start(frames, detail, interval) {
+    function start(frames, detail, interval, merges = []) {
+      const masses = detail.bodies.map((body) => body.mass);
+      // Se repasan los choques en orden para saber la masa de cada cuerpo
+      // antes y después de cada uno (un superviviente puede chocar otra vez).
+      const current = [...masses];
+      const events = merges.map((merge) => {
+        const before = current[merge.survivor];
+        const absorbedMass = current[merge.absorbed];
+        current[merge.survivor] = before + absorbedMass;
+        current[merge.absorbed] = 0;
+        return { ...merge, before, absorbedMass, after: current[merge.survivor] };
+      });
       sim = {
         frames,
-        masses: detail.bodies.map((body) => body.mass),
+        masses,
+        merges: events,
         interval,
         totalYears: interval * (frames.length - 1),
         view: null,
@@ -1156,8 +1197,8 @@
       const unreliable = detail.energy_error > ENERGY_LIMIT;
       ui.energy.classList.toggle("warning", unreliable);
       ui.energyHint.textContent = unreliable
-        ? "La energía cambió más de 0,1 %: probablemente dos cuerpos pasaron muy cerca y el paso de tiempo fijo no alcanzó a seguirlos. El resultado no es confiable."
-        : "Cuánto cambió la energía total del sistema. Menos de 0,1 % indica que el integrador es correcto.";
+        ? "La energía cambió más de 0,1 %: probablemente dos cuerpos pasaron muy cerca y la simulación no alcanzó a seguirlos. El resultado no es confiable."
+        : "Cuánto cambió la energía total del sistema, sin contar la que se pierde en los choques. Menos de 0,1 % indica que el integrador es correcto.";
       ui.results.hidden = false;
       ui.controls.hidden = false;
       ui.backToEditor.hidden = mode !== "editor";
@@ -1238,12 +1279,16 @@
       ctx.fillText(text, width / 2, height / 2);
     }
 
-    function drawBody(view, position, mass, highlight = false) {
+    // `radius` (píxeles) reemplaza el tamaño normal durante la animación de un choque.
+    function drawBody(view, position, mass, { highlight = false, radius, alpha = 1 } = {}) {
       const [x, y] = toScreen(view, position);
       const isStar = mass > STAR_MASS;
       const tint = isStar ? color("--sodium") : color("--planet");
+      radius ??= radiusPx(view, mass);
+      if (radius <= 0 || alpha <= 0) return;
+      ctx.globalAlpha = alpha;
       // Halo: amplio y dorado en las estrellas, apenas un brillo en los planetas.
-      const glow = isStar ? 30 : 11;
+      const glow = radius + (isStar ? 22 : 7);
       const rgb = isStar ? "255, 210, 122" : "143, 227, 255";
       const halo = ctx.createRadialGradient(x, y, 0, x, y, glow);
       halo.addColorStop(0, `rgba(${rgb}, ${isStar ? 0.55 : 0.35})`);
@@ -1253,7 +1298,6 @@
       ctx.arc(x, y, glow, 0, 2 * Math.PI);
       ctx.fill();
       // Núcleo con centro casi blanco, para que parezca que emite luz.
-      const radius = isStar ? 7.5 : 4;
       const core = ctx.createRadialGradient(x - radius * 0.3, y - radius * 0.3, 0, x, y, radius);
       core.addColorStop(0, "#FFFFFF");
       core.addColorStop(isStar ? 0.35 : 0.2, tint);
@@ -1267,10 +1311,43 @@
         ctx.lineWidth = 1.5;
         ctx.setLineDash([3, 3]);
         ctx.beginPath();
-        ctx.arc(x, y, isStar ? 14 : 10, 0, 2 * Math.PI);
+        ctx.arc(x, y, Math.max(radius + 6, 10), 0, 2 * Math.PI);
         ctx.stroke();
         ctx.setLineDash([]);
       }
+      ctx.globalAlpha = 1;
+    }
+
+    // Destello de un choque: un anillo que se expande y se apaga.
+    // `progress` va de 0 (el instante del choque) a 1 (fin de la animación).
+    function drawFlash(view, position, radius, progress) {
+      const [x, y] = toScreen(view, position);
+      const fade = 1 - progress;
+      // Fogonazo blanco al principio.
+      const burst = ctx.createRadialGradient(x, y, 0, x, y, radius * 3 + 12);
+      burst.addColorStop(0, `rgba(255, 255, 255, ${0.8 * fade ** 2})`);
+      burst.addColorStop(1, "rgba(255, 255, 255, 0)");
+      ctx.fillStyle = burst;
+      ctx.beginPath();
+      ctx.arc(x, y, radius * 3 + 12, 0, 2 * Math.PI);
+      ctx.fill();
+      // Onda que sale del punto de impacto.
+      ctx.strokeStyle = `rgba(255, 230, 180, ${0.9 * fade})`;
+      ctx.lineWidth = 2 * fade + 0.5;
+      ctx.beginPath();
+      ctx.arc(x, y, radius + progress * (radius * 4 + 30), 0, 2 * Math.PI);
+      ctx.stroke();
+    }
+
+    // Masa de cada cuerpo en un fotograma: 0 si ya fue absorbido.
+    function massesAt(frame) {
+      const masses = [...sim.masses];
+      for (const merge of sim.merges) {
+        if (merge.frame > frame) break;
+        masses[merge.survivor] = merge.after;
+        masses[merge.absorbed] = 0;
+      }
+      return masses;
     }
 
     function drawAnimation(width, height) {
@@ -1278,14 +1355,23 @@
       // se encuadra entero. Así un cuerpo que sale despedido no achica todo.
       const view = applyCamera(baseView());
       const count = sim.frames[0].length;
+      const masses = massesAt(frameIndex);
+      // La estela de un cuerpo absorbido termina donde chocó.
+      const trailEnd = Array(count).fill(Infinity);
+      const lastMass = [...sim.masses];
+      for (const merge of sim.merges) {
+        trailEnd[merge.absorbed] = merge.frame;
+        lastMass[merge.absorbed] = merge.absorbedMass;
+      }
 
       // Estelas: segmentos más transparentes cuanto más viejos.
       ctx.lineWidth = 1.6;
       ctx.lineCap = "round";
       const first = Math.max(0, frameIndex - TRAIL);
       for (let b = 0; b < count; b++) {
-        ctx.strokeStyle = sim.masses[b] > STAR_MASS ? color("--sodium") : color("--planet");
-        for (let i = first + 1; i <= frameIndex; i++) {
+        const tintMass = masses[b] > 0 ? masses[b] : lastMass[b];
+        ctx.strokeStyle = tintMass > STAR_MASS ? color("--sodium") : color("--planet");
+        for (let i = first + 1; i <= Math.min(frameIndex, trailEnd[b]); i++) {
           ctx.globalAlpha = 0.6 * ((i - first) / (frameIndex - first + 1));
           const [x0, y0] = toScreen(view, sim.frames[i - 1][b]);
           const [x1, y1] = toScreen(view, sim.frames[i][b]);
@@ -1297,8 +1383,33 @@
       }
       ctx.globalAlpha = 1;
 
+      // Choques recientes: el absorbido se encoge y se apaga, el superviviente
+      // crece poco a poco hasta su tamaño nuevo y hay un destello.
+      const growing = new Map();
+      const flashes = [];
+      for (const merge of sim.merges) {
+        const age = frameIndex - merge.frame;
+        if (age < 0 || age >= MERGE_FRAMES) continue;
+        const progress = age / MERGE_FRAMES;
+        const position = sim.frames[frameIndex][merge.survivor];
+        const shrink = 1 - progress;
+        drawBody(view, position, merge.absorbedMass, {
+          radius: radiusPx(view, merge.absorbedMass) * shrink,
+          alpha: shrink,
+        });
+        const ease = 1 - (1 - progress) ** 3;
+        const from = radiusPx(view, merge.before);
+        const to = radiusPx(view, merge.after);
+        growing.set(merge.survivor, from + (to - from) * ease);
+        flashes.push([position, to, progress]);
+      }
+
       for (let b = 0; b < count; b++) {
-        drawBody(view, sim.frames[frameIndex][b], sim.masses[b]);
+        if (masses[b] <= 0) continue;
+        drawBody(view, sim.frames[frameIndex][b], masses[b], { radius: growing.get(b) });
+      }
+      for (const [position, radius, progress] of flashes) {
+        drawFlash(view, position, radius, progress);
       }
 
       drawScaleBar(view, height);
@@ -1334,7 +1445,7 @@
         drawArrow(x0, y0, x1, y1);
       }
 
-      bodies.forEach((body, i) => drawBody(view, [body.x, body.y], body.mass, i === selected));
+      bodies.forEach((body, i) => drawBody(view, [body.x, body.y], body.mass, { highlight: i === selected }));
       drawScaleBar(view, height);
     }
 

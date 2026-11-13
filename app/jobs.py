@@ -90,7 +90,9 @@ def run_experiment(experiment_id: int, database_url: str = DATABASE_URL) -> None
         else:
             session.add(
                 ExperimentFrames(
-                    experiment_id=experiment.id, frames=result.frames.tolist()
+                    experiment_id=experiment.id,
+                    frames=result.frames.tolist(),
+                    merges=[merge._asdict() for merge in result.merges],
                 )
             )
             experiment.status = ExperimentStatus.COMPLETED

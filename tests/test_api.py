@@ -259,6 +259,48 @@ def test_frames_of_completed_experiment(client):
     assert body["frames"][0] == [[0, 0], [1, 0]]
 
 
+def test_frames_without_collisions_have_no_merges(client):
+    experiment_id = client.post(
+        "/experiments", json=light_example("Sol y Tierra")
+    ).json()["id"]
+
+    assert client.get(f"/experiments/{experiment_id}/frames").json()["merges"] == []
+
+
+def test_frames_report_merges(client):
+    # Dos estrellas quietas a 2 UA: caen una sobre la otra y se fusionan.
+    data = {
+        "name": "Choque",
+        "dt": 0.001,
+        "steps": 1000,
+        "save_every": 10,
+        "bodies": [
+            {"x": -1, "y": 0, "vx": 0, "vy": 0, "mass": 1.0},
+            {"x": 1, "y": 0, "vx": 0, "vy": 0, "mass": 1.0},
+        ],
+    }
+    experiment_id = client.post("/experiments", json=data).json()["id"]
+
+    body = client.get(f"/experiments/{experiment_id}/frames").json()
+
+    assert len(body["merges"]) == 1
+    assert body["merges"][0]["survivor"] == 0
+    assert body["merges"][0]["absorbed"] == 1
+    # Desde el fotograma del choque los dos cuerpos están en el mismo lugar.
+    frame = body["frames"][body["merges"][0]["frame"]]
+    assert frame[0] == frame[1]
+
+
+def test_overlapping_bodies_return_422(client):
+    data = plan_example()
+    data["bodies"][1]["x"] = 0.03
+
+    response = client.post("/experiments", json=data)
+
+    assert response.status_code == 422
+    assert "se solapan" in response.json()["detail"][0]["msg"]
+
+
 def test_frames_of_pending_experiment_returns_409(engine):
     # Un executor que solo anota: el experimento se queda pending.
     client = make_client(engine, lambda experiment_id: None)

@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 
-from sqlalchemy import JSON, Column
+from sqlalchemy import JSON, Column, inspect, text
 from sqlalchemy.engine import Engine
 from sqlmodel import Field, Session, SQLModel, create_engine
 
@@ -54,11 +54,28 @@ class ExperimentFrames(SQLModel, table=True):
     experiment_id: int = Field(foreign_key="experiment.id", primary_key=True)
     # (n_fotogramas, N, 2) convertido a listas anidadas.
     frames: list = Field(sa_column=Column(JSON, nullable=False))
+    # Choques: lista de {"frame", "survivor", "absorbed"}.
+    merges: list[dict] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False, default=list)
+    )
 
 
 def create_db_and_tables(db_engine: Engine = engine) -> None:
-    """Crea las tablas si no existen. No modifica tablas ya creadas."""
+    """Crea las tablas si no existen y agrega las columnas que falten.
+
+    create_all no modifica tablas ya creadas: una base anterior a los choques
+    no tendría la columna merges, así que se agrega aquí, vacía.
+    """
     SQLModel.metadata.create_all(db_engine)
+    columns = {c["name"] for c in inspect(db_engine).get_columns("experimentframes")}
+    if "merges" not in columns:
+        with db_engine.begin() as connection:
+            connection.execute(
+                text(
+                    "ALTER TABLE experimentframes "
+                    "ADD COLUMN merges JSON NOT NULL DEFAULT '[]'"
+                )
+            )
 
 
 def get_session() -> Iterator[Session]:

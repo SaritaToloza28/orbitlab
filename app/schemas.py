@@ -4,10 +4,13 @@ Describen cómo debe ser el JSON que llega y el que sale. Si un JSON no
 cumple, FastAPI responde 422 solo y el endpoint nunca se ejecuta.
 """
 
+import math
 from datetime import datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from physics.collisions import body_radius
 
 # Límites del plan: evitan que una petición abusiva tumbe el servidor.
 MIN_BODIES = 2
@@ -66,17 +69,17 @@ class ExperimentCreate(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def check_duplicate_bodies(self) -> "ExperimentCreate":
-        """Rechaza dos cuerpos en la misma posición: casi siempre es un error."""
-        seen: dict[tuple[float, float], int] = {}
-        for index, body in enumerate(self.bodies):
-            position = (body.x, body.y)
-            if position in seen:
-                raise ValueError(
-                    f"los cuerpos {seen[position]} y {index} están en la misma "
-                    f"posición ({body.x}, {body.y})"
-                )
-            seen[position] = index
+    def check_overlapping_bodies(self) -> "ExperimentCreate":
+        """Rechaza cuerpos que ya empiezan tocándose: se fusionarían al instante."""
+        radii = body_radius([body.mass for body in self.bodies])
+        for i, a in enumerate(self.bodies):
+            for j in range(i + 1, len(self.bodies)):
+                b = self.bodies[j]
+                if math.hypot(a.x - b.x, a.y - b.y) <= radii[i] + radii[j]:
+                    raise ValueError(
+                        f"los cuerpos {i} y {j} se solapan: con sus tamaños "
+                        f"deben estar a más de {radii[i] + radii[j]:.3g} UA"
+                    )
         return self
 
 
@@ -116,6 +119,15 @@ class ExperimentDetail(ExperimentSummary):
     error_message: str | None = None
 
 
+class MergeOut(BaseModel):
+    """Un choque: `absorbed` se fusionó con `survivor` (índices de `bodies`)."""
+
+    # Primer fotograma que ya muestra a los dos fusionados.
+    frame: int
+    survivor: int
+    absorbed: int
+
+
 class FramesOut(BaseModel):
     """Fotogramas de un experimento terminado, para GET /experiments/{id}/frames."""
 
@@ -123,4 +135,7 @@ class FramesOut(BaseModel):
     # Años simulados entre un fotograma y el siguiente (dt · save_every).
     frame_interval: float
     # Posiciones x, y de cada cuerpo en cada fotograma. (n_fotogramas, N, 2)
+    # Tras un choque, el absorbido sigue en la lista, pegado al superviviente.
     frames: list[list[list[float]]]
+    # Choques en el orden en que ocurrieron.
+    merges: list[MergeOut] = []

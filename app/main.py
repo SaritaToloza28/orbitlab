@@ -178,6 +178,7 @@ def get_frames(experiment_id: int, session: SessionDep) -> FramesOut:
         experiment_id=experiment_id,
         frame_interval=experiment.dt * experiment.save_every,
         frames=saved.frames,
+        merges=saved.merges,
     )
 
 
