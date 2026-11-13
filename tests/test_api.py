@@ -410,3 +410,13 @@ def test_unknown_scenario_returns_404_with_options(client):
         "los disponibles son: sol-tierra, binario, figura-8"
     )
     assert client.get("/experiments").json() == []
+
+
+def test_index_serves_the_page(client):
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "<title>Orbitlab</title>" in response.text
+    # La página usa los endpoints reales de la API.
+    assert "/experiments/from-scenario/" in response.text
