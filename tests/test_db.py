@@ -1,4 +1,5 @@
 import pytest
+from sqlalchemy import text
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, create_engine, select
 
@@ -178,3 +179,30 @@ def test_get_session_yields_a_session():
 
     assert isinstance(session, Session)
     sessions.close()
+
+
+def test_old_database_gets_merges_column():
+    # Una base creada antes de los choques: experimentframes sin la columna merges.
+    old_engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    with old_engine.begin() as connection:
+        connection.execute(
+            text(
+                "CREATE TABLE experimentframes "
+                "(experiment_id INTEGER PRIMARY KEY, frames JSON NOT NULL)"
+            )
+        )
+        connection.execute(
+            text("INSERT INTO experimentframes VALUES (1, '[[[0, 0]]]')")
+        )
+
+    create_db_and_tables(old_engine)
+
+    with Session(old_engine) as session:
+        saved = session.get(ExperimentFrames, 1)
+    # Los fotogramas viejos se conservan y quedan sin choques.
+    assert saved.frames == [[[0, 0]]]
+    assert saved.merges == []

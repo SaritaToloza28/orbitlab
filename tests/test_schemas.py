@@ -110,6 +110,22 @@ def test_rejects_duplicate_bodies():
         ExperimentCreate.model_validate(data)
 
 
+def test_rejects_bodies_that_start_touching():
+    data = valid_data()
+    # La estrella mide 0,05 UA y el planeta 0,012: a 0,06 UA ya se tocan.
+    data["bodies"][1]["x"] = 0.06
+
+    with pytest.raises(ValidationError, match="los cuerpos 0 y 1 se solapan"):
+        ExperimentCreate.model_validate(data)
+
+
+def test_accepts_bodies_just_apart():
+    data = valid_data()
+    data["bodies"][1]["x"] = 0.063
+
+    ExperimentCreate.model_validate(data)
+
+
 def test_rejects_too_many_frames():
     data = valid_data()
     # 2000 pasos guardando todos: 2000 + el inicial = 2001 fotogramas.
